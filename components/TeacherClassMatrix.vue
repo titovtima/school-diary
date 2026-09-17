@@ -11,22 +11,19 @@ const props = defineProps<{
   dates: string[]
   classId: number
   term: Term | null
+  gradeTypes: GradeType[]
 }>()
 
 const emit = defineEmits<{ (e: 'changed'): void }>()
 
 const api = useApi()
 const subjectId = ref<number | null>(null)
-const gradeTypes = ref<GradeType[]>([])
 const activeCell = ref<{ studentId: number; date: string } | null>(null)
+const details = ref<{ grade: MatrixCellGrade; student: string } | null>(null)
 
 watch(() => props.subjects, (s) => {
   if (s.length && !s.find(x => x.id === subjectId.value)) subjectId.value = s[0].id
 }, { immediate: true })
-
-onMounted(async () => {
-  gradeTypes.value = await api.fetchGradeTypes()
-})
 
 function cellGrades(studentId: number, date: string): MatrixCellGrade[] {
   if (!subjectId.value) return []
@@ -66,6 +63,7 @@ const classAvg = computed<number | null>(() => {
   return weightedAverage(all)
 })
 
+// Пустая ячейка → открыть попап постановки оценки
 function openCell(studentId: number, date: string) {
   activeCell.value = { studentId, date }
 }
@@ -85,21 +83,28 @@ async function quickGrade(value: number, gradeTypeId: number) {
   emit('changed')
 }
 
-async function deleteGrade(id: number) {
+// Клик по существующей оценке → попап с деталями
+function openDetails(g: MatrixCellGrade, studentName: string, e: MouseEvent) {
+  e.stopPropagation()
+  details.value = { grade: g, student: studentName }
+}
+function closeDetails() {
+  details.value = null
+}
+async function deleteFromDetails(id: number) {
   if (!confirm('Удалить оценку?')) return
   await api.deleteGrade(id)
+  details.value = null
   emit('changed')
 }
 
-// === Динамическое смещение второй sticky-колонки ===
+// === Sticky ===
 const firstColRef = ref<HTMLElement | null>(null)
 const col1Width = ref(0)
 let ro: ResizeObserver | null = null
-
 function measure() {
   if (firstColRef.value) col1Width.value = firstColRef.value.offsetWidth
 }
-
 onMounted(async () => {
   await nextTick()
   measure()
@@ -109,12 +114,10 @@ onMounted(async () => {
   }
   window.addEventListener('resize', measure)
 })
-
 onBeforeUnmount(() => {
   ro?.disconnect()
   window.removeEventListener('resize', measure)
 })
-
 watch(() => props.rows, () => nextTick(measure))
 </script>
 
@@ -129,7 +132,7 @@ watch(() => props.rows, () => nextTick(measure))
       <span v-if="classAvg !== null" class="class-avg">
         Средний балл класса: <b>{{ formatAvg(classAvg) }}</b>
       </span>
-      <span class="tip">Клик по ячейке — поставить оценку. Клик по оценке — удалить.</span>
+      <span class="tip">Клик по ячейке — поставить оценку. Клик по оценке — детали.</span>
     </div>
 
     <div class="matrix-wrap" :style="{ '--col1-width': col1Width + 'px' }">
@@ -157,8 +160,8 @@ watch(() => props.rows, () => nextTick(measure))
                 :key="g.id"
                 class="grade"
                 :class="gradeWeightClass(g.weight)"
-                :title="`${g.grade_type_name} (вес ${g.weight}). Клик — удалить.`"
-                @click.stop="deleteGrade(g.id)"
+                :title="`${g.grade_type_name} · вес ${g.weight}`"
+                @click="openDetails(g, r.student_name, $event)"
               >{{ g.value }}</span>
             </td>
           </tr>
@@ -174,6 +177,9 @@ watch(() => props.rows, () => nextTick(measure))
       </table>
     </div>
 
+    <GradeLegend v-if="gradeTypes.length" :types="gradeTypes" />
+
+    <!-- Попап постановки оценок (пустая ячейка) -->
     <div v-if="activeCell" class="overlay" @click.self="closePopover">
       <div class="popover">
         <div class="popover-head">
@@ -196,14 +202,31 @@ watch(() => props.rows, () => nextTick(measure))
               :key="g.id"
               class="grade"
               :class="gradeWeightClass(g.weight)"
-              :title="`${g.grade_type_name} (вес ${g.weight}). Клик — удалить.`"
-              @click="deleteGrade(g.id)"
+              :title="`${g.grade_type_name} (вес ${g.weight}). Клик — детали.`"
+              @click="openDetails(g, rows.find(r => r.student_id === activeCell!.studentId)?.student_name ?? '', $event)"
             >{{ g.value }}</span>
           </div>
         </div>
         <button class="close" @click="closePopover">Закрыть</button>
       </div>
     </div>
+
+    <!-- Попап деталей оценки -->
+    <GradeDetailsPopover
+      v-if="details"
+      :grade="{
+        id: details.grade.id,
+        value: details.grade.value,
+        weight: details.grade.weight,
+        grade_type_name: details.grade.grade_type_name,
+        subject_name: subjects.find(s => s.id === subjectId)?.name,
+        lesson_date: activeCell?.date,
+      }"
+      :title="details.student"
+      deletable
+      @close="closeDetails"
+      @delete="deleteFromDetails"
+    />
   </div>
 </template>
 
@@ -224,18 +247,13 @@ watch(() => props.rows, () => nextTick(measure))
 }
 .matrix thead th { background: #f8fafc; position: sticky; top: 0; z-index: 3; }
 
-/* Ширина — по содержимому */
 .col-student { text-align: left; white-space: nowrap; width: max-content; }
-.col-avg {
-  white-space: nowrap; width: max-content;
-  background: #f1f5f9; font-weight: 600;
-}
+.col-avg { white-space: nowrap; width: max-content; background: #f1f5f9; font-weight: 600; }
 .col-date { white-space: nowrap; min-width: 56px; }
-.cell { min-width: 40px; cursor: pointer; }
+.cell { min-width: 44px; cursor: pointer; }
 .cell:hover { background: #f1f5f9; }
 .cell.active { background: #dbeafe; }
 
-/* Sticky */
 .sticky-1 {
   position: sticky; left: 0; z-index: 2;
   background: #fff; box-shadow: 2px 0 0 #e2e8f0;

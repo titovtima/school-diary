@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import type { Grade, Term } from '~/types'
+import type { Grade, Term, GradeType } from '~/types'
 import { gradeWeightClass } from '~/composables/useGradeColor'
 import { formatDateShort, schoolDaysBetween, normalizeDate } from '~/composables/useDate'
 import { weightedAverage, formatAvg } from '~/composables/useGradeCalc'
@@ -9,9 +9,11 @@ const props = defineProps<{
   grades: Grade[]
   term: Term | null
   subjects: { id: number; name: string }[]
+  gradeTypes: GradeType[]
 }>()
 
-// === Данные ===
+const selected = ref<{ grade: Grade; subject: string } | null>(null)
+
 const effectiveSubjects = computed(() => {
   if (props.subjects?.length) return props.subjects
   const map = new Map<number, string>()
@@ -50,7 +52,14 @@ function subjectAvg(subjectId: number): number | null {
 
 const totalAvg = computed(() => weightedAverage(props.grades))
 
-// === Динамическое смещение второй sticky-колонки ===
+function openDetails(g: Grade, subjectName: string) {
+  selected.value = { grade: g, subject: subjectName }
+}
+function closeDetails() {
+  selected.value = null
+}
+
+// === Sticky ===
 const firstColRef = ref<HTMLElement | null>(null)
 const col1Width = ref(0)
 let ro: ResizeObserver | null = null
@@ -74,57 +83,72 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', measure)
 })
 
-// пересчитываем при изменении списка предметов/дат
 watch([effectiveSubjects, dates], () => nextTick(measure))
 </script>
 
 <template>
-  <div class="matrix-wrap" :style="{ '--col1-width': col1Width + 'px' }">
-    <table class="matrix">
-      <thead>
-        <tr>
-          <th :ref="el => (firstColRef = el as HTMLElement | null)" class="col-subject sticky-1">Предмет</th>
-          <th class="col-avg sticky-2">Средн.</th>
-          <th v-for="d in dates" :key="d" class="col-date">{{ formatDateShort(d) }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="s in effectiveSubjects" :key="s.id">
-          <td class="col-subject sticky-1">{{ s.name }}</td>
-          <td class="col-avg sticky-2">{{ formatAvg(subjectAvg(s.id)) }}</td>
-          <td v-for="d in dates" :key="d" class="col-cell">
-            <span
-              v-for="g in cell(s.id, d)"
-              :key="g.id"
-              class="grade"
-              :class="gradeWeightClass(g.weight)"
-              :title="`${g.grade_type_name} (вес ${g.weight})${g.comment ? ' — ' + g.comment : ''}`"
-            >{{ g.value }}</span>
-          </td>
-        </tr>
-        <tr v-if="!effectiveSubjects.length">
-          <td :colspan="dates.length + 2" class="empty">Предметов нет</td>
-        </tr>
-        <tr v-else class="total-row">
-          <td class="col-subject sticky-1">Итого</td>
-          <td class="col-avg sticky-2">{{ formatAvg(totalAvg) }}</td>
-          <td :colspan="dates.length"></td>
-        </tr>
-      </tbody>
-    </table>
+  <div class="matrix-root" :style="{ '--col1-width': col1Width + 'px' }">
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th :ref="el => (firstColRef = el as HTMLElement | null)" class="col-subject sticky-1">Предмет</th>
+            <th class="col-avg sticky-2">Средн.</th>
+            <th v-for="d in dates" :key="d" class="col-date">{{ formatDateShort(d) }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="s in effectiveSubjects" :key="s.id">
+            <td class="col-subject sticky-1">{{ s.name }}</td>
+            <td class="col-avg sticky-2">{{ formatAvg(subjectAvg(s.id)) }}</td>
+            <td v-for="d in dates" :key="d" class="col-cell">
+              <span
+                v-for="g in cell(s.id, d)"
+                :key="g.id"
+                class="grade"
+                :class="gradeWeightClass(g.weight)"
+                :title="`${g.grade_type_name} · вес ${g.weight}`"
+                @click="openDetails(g, s.name)"
+              >{{ g.value }}</span>
+            </td>
+          </tr>
+          <tr v-if="!effectiveSubjects.length">
+            <td :colspan="dates.length + 2" class="empty">Предметов нет</td>
+          </tr>
+          <tr v-else class="total-row">
+            <td class="col-subject sticky-1">Итого</td>
+            <td class="col-avg sticky-2">{{ formatAvg(totalAvg) }}</td>
+            <td :colspan="dates.length"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <GradeLegend v-if="gradeTypes.length" :types="gradeTypes" />
+    <p class="hint">Клик по оценке — подробности: тип работы, коэффициент, комментарий.</p>
+
+    <GradeDetailsPopover
+      v-if="selected"
+      :grade="{
+        id: selected.grade.id,
+        value: selected.grade.value,
+        weight: selected.grade.weight,
+        grade_type_name: selected.grade.grade_type_name,
+        subject_name: selected.subject,
+        lesson_date: selected.grade.lesson_date,
+        comment: selected.grade.comment,
+      }"
+      :title="selected.subject"
+      @close="closeDetails"
+    />
   </div>
 </template>
 
 <style scoped>
-.matrix-wrap {
-  overflow-x: auto;
-  position: relative;
-}
-.matrix {
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 12px;
-}
+.matrix-root { display: flex; flex-direction: column; }
+
+.matrix-wrap { overflow-x: auto; position: relative; }
+.matrix { border-collapse: separate; border-spacing: 0; font-size: 12px; }
 .matrix th, .matrix td {
   border-right: 1px solid #e2e8f0;
   border-bottom: 1px solid #e2e8f0;
@@ -132,47 +156,28 @@ watch([effectiveSubjects, dates], () => nextTick(measure))
   text-align: center;
   background: #fff;
 }
-.matrix thead th {
-  background: #f8fafc;
-  font-weight: 600;
-}
+.matrix thead th { background: #f8fafc; font-weight: 600; }
 
-/* Ширина — по содержимому + маленький отступ */
-.col-subject {
-  text-align: left;
-  white-space: nowrap;
-  width: max-content;
-}
-.col-avg {
-  white-space: nowrap;
-  width: max-content;
-  background: #f1f5f9;
-  font-weight: 600;
-}
+.col-subject { text-align: left; white-space: nowrap; width: max-content; }
+.col-avg { white-space: nowrap; width: max-content; background: #f1f5f9; font-weight: 600; }
 .col-date { white-space: nowrap; min-width: 40px; }
-.col-cell { min-width: 36px; }
+.col-cell { min-width: 40px; }
 
-/* Sticky-колонки */
 .sticky-1 {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  background: #fff;
-  box-shadow: 2px 0 0 #e2e8f0;
+  position: sticky; left: 0; z-index: 2;
+  background: #fff; box-shadow: 2px 0 0 #e2e8f0;
 }
 .matrix thead .sticky-1 { background: #f8fafc; z-index: 4; }
 .total-row .sticky-1 { background: #f8fafc; }
 
 .sticky-2 {
-  position: sticky;
-  left: var(--col1-width, 0);
-  z-index: 2;
-  background: #f1f5f9;
-  box-shadow: 2px 0 0 #e2e8f0;
+  position: sticky; left: var(--col1-width, 0); z-index: 2;
+  background: #f1f5f9; box-shadow: 2px 0 0 #e2e8f0;
 }
 .matrix thead .sticky-2 { background: #f1f5f9; z-index: 4; }
 .total-row .sticky-2 { background: #f8fafc; }
 
 .empty { color: #94a3b8; padding: 20px; }
 .total-row td { background: #f8fafc; font-weight: 600; }
+.hint { font-size: 12px; color: #94a3b8; margin-top: 6px; }
 </style>

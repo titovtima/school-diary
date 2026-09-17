@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { AuthUser, Grade, Homework, Term } from '~/types'
+import type { AuthUser, Grade, GradeType, Homework, Term } from '~/types'
 import { normalizeDate } from '~/composables/useDate'
 
 const api = useApi()
@@ -18,6 +18,12 @@ const { data: terms } = await useAsyncData<Term[]>(
   'student-terms',
   () => api.fetchTerms(),
   { default: () => [] as Term[] }
+)
+
+const { data: gradeTypes } = await useAsyncData<GradeType[]>(
+  'grade-types',
+  () => api.fetchGradeTypes(),
+  { default: () => [] as GradeType[] }
 )
 
 const selectedTermId = ref<number | null>(null)
@@ -62,8 +68,6 @@ const { data: homework } = await useAsyncData<Homework[]>(
   { watch: [studentId], default: () => [] as Homework[] }
 )
 
-// === БЕЗ fallback: если в четверти нет оценок — показываем пустые ячейки.
-// Все оценки за всё время больше не подмешиваются.
 const gradesInTerm = computed<Grade[]>(() => {
   const all = grades.value
   if (!activeTerm.value) return all
@@ -93,8 +97,7 @@ async function reload() {
     </div>
 
     <p v-if="!studentId" class="error">
-      Не удалось определить ученика. Проверьте, что у пользователя
-      в таблице <code>users</code> заполнено поле <code>student_id</code>.
+      Не удалось определить ученика.
     </p>
 
     <template v-else>
@@ -113,6 +116,7 @@ async function reload() {
           :grades="gradesInTerm"
           :term="activeTerm"
           :subjects="subjects"
+          :grade-types="gradeTypes || []"
         />
       </template>
 

@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import type { SchoolClass, MatrixRow, Term } from '~/types'
+import type { SchoolClass, MatrixRow, Term, GradeType } from '~/types'
 
 const api = useApi()
 
 const { data: classes } = await useAsyncData<SchoolClass[]>(
-  'teacher-classes',
-  () => api.fetchClasses(),
-  { default: () => [] as SchoolClass[] }
+  'teacher-classes', () => api.fetchClasses(), { default: () => [] as SchoolClass[] }
 )
 const { data: terms } = await useAsyncData<Term[]>(
-  'teacher-terms',
-  () => api.fetchTerms(),
-  { default: () => [] as Term[] }
+  'teacher-terms', () => api.fetchTerms(), { default: () => [] as Term[] }
+)
+const { data: gradeTypes } = await useAsyncData<GradeType[]>(
+  'grade-types', () => api.fetchGradeTypes(), { default: () => [] as GradeType[] }
 )
 
 const selectedClassId = ref<number | null>(null)
@@ -36,10 +35,7 @@ watch(terms, (list) => {
 async function load() {
   if (!selectedClassId.value) return
   subjects.value = await api.fetchClassSubjects(selectedClassId.value)
-  const res = await api.fetchGradesMatrix(
-    selectedClassId.value,
-    selectedTermId.value ?? undefined,
-  )
+  const res = await api.fetchGradesMatrix(selectedClassId.value, selectedTermId.value ?? undefined)
   dates.value = res.dates
   rows.value = res.rows
   activeTerm.value = res.term
@@ -63,6 +59,7 @@ watch([selectedClassId, selectedTermId], load, { immediate: true })
       :dates="dates"
       :class-id="selectedClassId"
       :term="activeTerm"
+      :grade-types="gradeTypes || []"
       @changed="load"
     />
 

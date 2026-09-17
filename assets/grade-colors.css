@@ -1,16 +1,33 @@
 /* Цвет оценки = её вес (важность), а не значение */
 .grade {
   display: inline-block;
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: 4px;
   color: #fff;
   font-weight: 700;
   font-size: 12px;
   line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
 }
 
-.grade.w1 { background: #94a3b8; }   /* серый       — вес 1.0 (урок, ДЗ, ответ) */
+.grade.w1 { background: #94a3b8; }   /* серый       — вес 1.0 */
 .grade.w2 { background: #22c55e; }   /* зелёный     — вес ~1.25 */
-.grade.w3 { background: #0ea5e9; }   /* голубой     — вес 1.5 (самост., проект) */
+.grade.w3 { background: #0ea5e9; }   /* голубой     — вес 1.5 */
 .grade.w4 { background: #8b5cf6; }   /* фиолетовый  — вес ~1.75 */
-.grade.w5 { background: #dc2626; }   /* красный     — вес 2.0+ (контрольная) */
+.grade.w5 { background: #dc2626; }   /* красный     — вес 2.0+ */
+
+/* Легенда под таблицей */
+.grade-legend {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  margin: 10px 0 0; font-size: 12px; color: #475569;
+}
+.grade-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+.grade-legend .chip {
+  display: inline-block; width: 14px; height: 14px; border-radius: 4px;
+}
+.grade-legend .chip.w1 { background: #94a3b8; }
+.grade-legend .chip.w2 { background: #22c55e; }
+.grade-legend .chip.w3 { background: #0ea5e9; }
+.grade-legend .chip.w4 { background: #8b5cf6; }
+.grade-legend .chip.w5 { background: #dc2626; }
