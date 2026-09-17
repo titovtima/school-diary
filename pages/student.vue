@@ -85,6 +85,9 @@ const hasGradesInTerm = computed(() => gradesInTerm.value.length > 0)
 async function reload() {
   await Promise.all([refreshMe(), refreshGrades()])
 }
+const appConfig = useAppConfig()
+useHead({ title: `Мой дневник · ${appConfig.school.shortName}` })
+
 </script>
 
 <template>

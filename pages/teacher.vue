@@ -41,6 +41,9 @@ async function load() {
   activeTerm.value = res.term
 }
 watch([selectedClassId, selectedTermId], load, { immediate: true })
+const appConfig = useAppConfig()
+useHead({ title: `Журнал · ${appConfig.school.shortName}` })
+
 </script>
 
 <template>
