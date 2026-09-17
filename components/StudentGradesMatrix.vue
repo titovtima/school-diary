@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import type { Grade, Term } from '~/types'
 import { gradeWeightClass } from '~/composables/useGradeColor'
 import { formatDateShort, schoolDaysBetween, normalizeDate } from '~/composables/useDate'
@@ -11,8 +11,7 @@ const props = defineProps<{
   subjects: { id: number; name: string }[]
 }>()
 
-// Список предметов: приоритет — subjects из API,
-// fallback — уникальные предметы из оценок
+// === Данные ===
 const effectiveSubjects = computed(() => {
   if (props.subjects?.length) return props.subjects
   const map = new Map<number, string>()
@@ -21,9 +20,6 @@ const effectiveSubjects = computed(() => {
     .sort((a, b) => a.name.localeCompare(b.name))
 })
 
-// Даты:
-//  - если есть term — все учебные дни четверти (включая будущие)
-//  - если term битый — уникальные дни из оценок
 const dates = computed<string[]>(() => {
   if (props.term) {
     const list = schoolDaysBetween(props.term.start_date, props.term.end_date)
@@ -34,7 +30,6 @@ const dates = computed<string[]>(() => {
     .sort()
 })
 
-// Индекс: `subject_id|YYYY-MM-DD` -> Grade[]
 const index = computed(() => {
   const m = new Map<string, Grade[]>()
   for (const g of props.grades) {
@@ -49,30 +44,54 @@ function cell(subjectId: number, date: string): Grade[] {
   return index.value.get(`${subjectId}|${normalizeDate(date)}`) || []
 }
 
-// Средний по предмету — только по оценкам ИЗ ЭТОЙ ЧЕТВЕРТИ
-// (props.grades уже отфильтрован на странице), поэтому никаких
-// «чужих» средних не появится.
 function subjectAvg(subjectId: number): number | null {
   return weightedAverage(props.grades.filter(g => g.subject_id === subjectId))
 }
 
 const totalAvg = computed(() => weightedAverage(props.grades))
+
+// === Динамическое смещение второй sticky-колонки ===
+const firstColRef = ref<HTMLElement | null>(null)
+const col1Width = ref(0)
+let ro: ResizeObserver | null = null
+
+function measure() {
+  if (firstColRef.value) col1Width.value = firstColRef.value.offsetWidth
+}
+
+onMounted(async () => {
+  await nextTick()
+  measure()
+  if (firstColRef.value && 'ResizeObserver' in window) {
+    ro = new ResizeObserver(measure)
+    ro.observe(firstColRef.value)
+  }
+  window.addEventListener('resize', measure)
+})
+
+onBeforeUnmount(() => {
+  ro?.disconnect()
+  window.removeEventListener('resize', measure)
+})
+
+// пересчитываем при изменении списка предметов/дат
+watch([effectiveSubjects, dates], () => nextTick(measure))
 </script>
 
 <template>
-  <div class="matrix-wrap">
+  <div class="matrix-wrap" :style="{ '--col1-width': col1Width + 'px' }">
     <table class="matrix">
       <thead>
         <tr>
-          <th class="col-subject">Предмет</th>
-          <th class="col-avg">Средн.</th>
+          <th :ref="el => (firstColRef = el as HTMLElement | null)" class="col-subject sticky-1">Предмет</th>
+          <th class="col-avg sticky-2">Средн.</th>
           <th v-for="d in dates" :key="d" class="col-date">{{ formatDateShort(d) }}</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="s in effectiveSubjects" :key="s.id">
-          <td class="col-subject">{{ s.name }}</td>
-          <td class="col-avg">{{ formatAvg(subjectAvg(s.id)) }}</td>
+          <td class="col-subject sticky-1">{{ s.name }}</td>
+          <td class="col-avg sticky-2">{{ formatAvg(subjectAvg(s.id)) }}</td>
           <td v-for="d in dates" :key="d" class="col-cell">
             <span
               v-for="g in cell(s.id, d)"
@@ -87,30 +106,73 @@ const totalAvg = computed(() => weightedAverage(props.grades))
           <td :colspan="dates.length + 2" class="empty">Предметов нет</td>
         </tr>
         <tr v-else class="total-row">
-          <td class="col-subject">Итого</td>
-          <td class="col-avg">{{ formatAvg(totalAvg) }}</td>
+          <td class="col-subject sticky-1">Итого</td>
+          <td class="col-avg sticky-2">{{ formatAvg(totalAvg) }}</td>
           <td :colspan="dates.length"></td>
         </tr>
       </tbody>
     </table>
-    <p v-if="!dates.length" class="no-dates">
-      Не удалось построить список дат четверти — проверьте поля start_date/end_date в таблице terms.
-    </p>
   </div>
 </template>
 
 <style scoped>
-.matrix-wrap { overflow-x: auto; }
-.matrix { border-collapse: collapse; font-size: 12px; }
-.matrix th, .matrix td {
-  border: 1px solid #e2e8f0; padding: 4px 6px; text-align: center; background: #fff;
+.matrix-wrap {
+  overflow-x: auto;
+  position: relative;
 }
-.matrix thead th { background: #f8fafc; font-weight: 600; }
-.col-subject { text-align: left; min-width: 160px; }
-.col-avg    { background: #f1f5f9; font-weight: 600; min-width: 56px; }
-.col-date   { white-space: nowrap; min-width: 42px; }
-.col-cell   { min-width: 44px; }
+.matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+.matrix th, .matrix td {
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 4px 8px;
+  text-align: center;
+  background: #fff;
+}
+.matrix thead th {
+  background: #f8fafc;
+  font-weight: 600;
+}
+
+/* Ширина — по содержимому + маленький отступ */
+.col-subject {
+  text-align: left;
+  white-space: nowrap;
+  width: max-content;
+}
+.col-avg {
+  white-space: nowrap;
+  width: max-content;
+  background: #f1f5f9;
+  font-weight: 600;
+}
+.col-date { white-space: nowrap; min-width: 40px; }
+.col-cell { min-width: 36px; }
+
+/* Sticky-колонки */
+.sticky-1 {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #fff;
+  box-shadow: 2px 0 0 #e2e8f0;
+}
+.matrix thead .sticky-1 { background: #f8fafc; z-index: 4; }
+.total-row .sticky-1 { background: #f8fafc; }
+
+.sticky-2 {
+  position: sticky;
+  left: var(--col1-width, 0);
+  z-index: 2;
+  background: #f1f5f9;
+  box-shadow: 2px 0 0 #e2e8f0;
+}
+.matrix thead .sticky-2 { background: #f1f5f9; z-index: 4; }
+.total-row .sticky-2 { background: #f8fafc; }
+
 .empty { color: #94a3b8; padding: 20px; }
 .total-row td { background: #f8fafc; font-weight: 600; }
-.no-dates { color: #b45309; font-size: 13px; margin-top: 8px; }
 </style>

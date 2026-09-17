@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import type { MatrixRow, Term, GradeType, MatrixCellGrade } from '~/types'
 import { gradeWeightClass } from '~/composables/useGradeColor'
 import { formatDateShort } from '~/composables/useDate'
@@ -28,7 +28,6 @@ onMounted(async () => {
   gradeTypes.value = await api.fetchGradeTypes()
 })
 
-// ВАЖНО: ключи в JSON — строки, поэтому обращаемся через String(...)
 function cellGrades(studentId: number, date: string): MatrixCellGrade[] {
   if (!subjectId.value) return []
   const row = props.rows.find(r => r.student_id === studentId)
@@ -91,6 +90,32 @@ async function deleteGrade(id: number) {
   await api.deleteGrade(id)
   emit('changed')
 }
+
+// === Динамическое смещение второй sticky-колонки ===
+const firstColRef = ref<HTMLElement | null>(null)
+const col1Width = ref(0)
+let ro: ResizeObserver | null = null
+
+function measure() {
+  if (firstColRef.value) col1Width.value = firstColRef.value.offsetWidth
+}
+
+onMounted(async () => {
+  await nextTick()
+  measure()
+  if (firstColRef.value && 'ResizeObserver' in window) {
+    ro = new ResizeObserver(measure)
+    ro.observe(firstColRef.value)
+  }
+  window.addEventListener('resize', measure)
+})
+
+onBeforeUnmount(() => {
+  ro?.disconnect()
+  window.removeEventListener('resize', measure)
+})
+
+watch(() => props.rows, () => nextTick(measure))
 </script>
 
 <template>
@@ -107,19 +132,19 @@ async function deleteGrade(id: number) {
       <span class="tip">Клик по ячейке — поставить оценку. Клик по оценке — удалить.</span>
     </div>
 
-    <div class="matrix-wrap">
+    <div class="matrix-wrap" :style="{ '--col1-width': col1Width + 'px' }">
       <table class="matrix">
         <thead>
           <tr>
-            <th class="corner sticky-left">Ученик</th>
-            <th class="avg-col sticky-left2">Средн.</th>
-            <th v-for="d in dates" :key="d" class="date-col">{{ formatDateShort(d) }}</th>
+            <th :ref="el => (firstColRef = el as HTMLElement | null)" class="col-student sticky-1">Ученик</th>
+            <th class="col-avg sticky-2">Средн.</th>
+            <th v-for="d in dates" :key="d" class="col-date">{{ formatDateShort(d) }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="r in rows" :key="r.student_id">
-            <td class="student sticky-left">{{ r.student_name }}</td>
-            <td class="avg sticky-left2">{{ formatAvg(studentAvg(r.student_id)) }}</td>
+            <td class="col-student sticky-1">{{ r.student_name }}</td>
+            <td class="col-avg sticky-2">{{ formatAvg(studentAvg(r.student_id)) }}</td>
             <td
               v-for="d in dates"
               :key="d"
@@ -141,8 +166,8 @@ async function deleteGrade(id: number) {
             <td :colspan="dates.length + 2" class="empty">Нет данных</td>
           </tr>
           <tr v-else class="total-row">
-            <td class="student sticky-left">Средн. по дню</td>
-            <td class="avg sticky-left2">{{ formatAvg(classAvg) }}</td>
+            <td class="col-student sticky-1">Средн. по дню</td>
+            <td class="col-avg sticky-2">{{ formatAvg(classAvg) }}</td>
             <td v-for="d in dates" :key="d" class="avg">{{ formatAvg(classAvgByDate(d)) }}</td>
           </tr>
         </tbody>
@@ -154,9 +179,7 @@ async function deleteGrade(id: number) {
         <div class="popover-head">
           {{ activeCell.date }} — {{ rows.find(r => r.student_id === activeCell!.studentId)?.student_name }}
         </div>
-
         <p class="hint">Можно поставить несколько оценок за один урок — попап не закроется.</p>
-
         <div v-for="gt in gradeTypes" :key="gt.id" class="row">
           <span class="type-name">
             {{ gt.name }} <small>(вес {{ gt.weight }})</small>
@@ -165,7 +188,6 @@ async function deleteGrade(id: number) {
             <button v-for="v in [5, 4, 3, 2]" :key="v" @click="quickGrade(v, gt.id)">{{ v }}</button>
           </div>
         </div>
-
         <div v-if="cellGrades(activeCell!.studentId, activeCell!.date).length" class="current">
           <div class="current-head">Оценки за этот урок:</div>
           <div class="current-list">
@@ -179,7 +201,6 @@ async function deleteGrade(id: number) {
             >{{ g.value }}</span>
           </div>
         </div>
-
         <button class="close" @click="closePopover">Закрыть</button>
       </div>
     </div>
@@ -192,35 +213,45 @@ async function deleteGrade(id: number) {
 .class-avg b { color: #0f172a; }
 .tip { font-size: 12px; color: #94a3b8; }
 
-.matrix-wrap { overflow-x: auto; max-height: 70vh; overflow-y: auto; }
+.matrix-wrap { overflow-x: auto; max-height: 70vh; overflow-y: auto; position: relative; }
 .matrix { border-collapse: separate; border-spacing: 0; font-size: 12px; }
 .matrix th, .matrix td {
-  border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;
-  padding: 3px 5px; text-align: center; background: #fff;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 4px 8px;
+  text-align: center;
+  background: #fff;
 }
 .matrix thead th { background: #f8fafc; position: sticky; top: 0; z-index: 3; }
-.date-col { white-space: nowrap; font-weight: 500; min-width: 60px; }
-.corner, .student { text-align: left; min-width: 180px; }
-.cell { min-width: 44px; cursor: pointer; }
+
+/* Ширина — по содержимому */
+.col-student { text-align: left; white-space: nowrap; width: max-content; }
+.col-avg {
+  white-space: nowrap; width: max-content;
+  background: #f1f5f9; font-weight: 600;
+}
+.col-date { white-space: nowrap; min-width: 56px; }
+.cell { min-width: 40px; cursor: pointer; }
 .cell:hover { background: #f1f5f9; }
 .cell.active { background: #dbeafe; }
-.avg-col, .avg { background: #f1f5f9; font-weight: 600; min-width: 60px; }
-.empty { color: #94a3b8; padding: 20px; }
-.total-row td { background: #f8fafc; font-weight: 600; }
 
-.sticky-left {
+/* Sticky */
+.sticky-1 {
   position: sticky; left: 0; z-index: 2;
   background: #fff; box-shadow: 2px 0 0 #e2e8f0;
 }
-.matrix thead .sticky-left { background: #f8fafc; z-index: 5; }
-.total-row .sticky-left { background: #f8fafc; }
+.matrix thead .sticky-1 { background: #f8fafc; z-index: 5; }
+.total-row .sticky-1 { background: #f8fafc; }
 
-.sticky-left2 {
-  position: sticky; left: 180px; z-index: 2;
+.sticky-2 {
+  position: sticky; left: var(--col1-width, 0); z-index: 2;
   background: #f1f5f9; box-shadow: 2px 0 0 #e2e8f0;
 }
-.matrix thead .sticky-left2 { background: #f1f5f9; z-index: 5; }
-.total-row .sticky-left2 { background: #f8fafc; }
+.matrix thead .sticky-2 { background: #f1f5f9; z-index: 5; }
+.total-row .sticky-2 { background: #f8fafc; }
+
+.empty { color: #94a3b8; padding: 20px; }
+.total-row td { background: #f8fafc; font-weight: 600; }
 
 .overlay {
   position: fixed; inset: 0; background: rgba(15,23,42,.4);
