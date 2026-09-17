@@ -1,0 +1,27 @@
+<script setup lang="ts">
+import type { SchoolClass } from '~/types'
+
+const props = defineProps<{ classes: SchoolClass[]; modelValue: number | null }>()
+const emit = defineEmits<{ (e: 'update:modelValue', v: number): void }>()
+
+function onChange(e: Event) {
+  emit('update:modelValue', Number((e.target as HTMLSelectElement).value))
+}
+</script>
+
+<template>
+  <label class="switcher">
+    Класс:
+    <select :value="props.modelValue ?? ''" @change="onChange">
+      <option disabled value="">— выберите —</option>
+      <option v-for="c in props.classes" :key="c.id" :value="c.id">
+        {{ c.name }} ({{ c.year }})
+      </option>
+    </select>
+  </label>
+</template>
+
+<style scoped>
+.switcher { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+select { padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; }
+</style>

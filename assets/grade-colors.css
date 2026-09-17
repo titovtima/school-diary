@@ -1,0 +1,16 @@
+/* Цвет оценки = её вес (важность), а не значение */
+.grade {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.grade.w1 { background: #94a3b8; }   /* серый       — вес 1.0 (урок, ДЗ, ответ) */
+.grade.w2 { background: #22c55e; }   /* зелёный     — вес ~1.25 */
+.grade.w3 { background: #0ea5e9; }   /* голубой     — вес 1.5 (самост., проект) */
+.grade.w4 { background: #8b5cf6; }   /* фиолетовый  — вес ~1.75 */
+.grade.w5 { background: #dc2626; }   /* красный     — вес 2.0+ (контрольная) */

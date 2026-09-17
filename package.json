@@ -1,0 +1,26 @@
+{
+  "name": "school-diary",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "user:create": "node scripts/create-user.mjs"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie": "^2.0.1",
+    "dotenv": "^16.4.5",
+    "nuxt": "^3.13.0",
+    "pg": "^8.12.0",
+    "vue": "^3.4.0",
+    "vue-router": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.5.0"
+  }
+}
