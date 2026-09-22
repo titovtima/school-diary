@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, watch, nextTick } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import type { Grade, Term, GradeType } from '~/types'
 import { gradeWeightClass } from '~/composables/useGradeColor'
 import { formatDateShort, schoolDaysBetween, normalizeDate } from '~/composables/useDate'
@@ -45,39 +45,36 @@ const index = computed(() => {
 function cell(subjectId: number, date: string): Grade[] {
   return index.value.get(`${subjectId}|${normalizeDate(date)}`) || []
 }
-
 function subjectAvg(subjectId: number): number | null {
   return weightedAverage(props.grades.filter(g => g.subject_id === subjectId))
 }
 const totalAvg = computed(() => weightedAverage(props.grades))
 
-function openDetails(g: Grade, subjectName: string) {
-  selected.value = { grade: g, subject: subjectName }
-}
+function openDetails(g: Grade, subjectName: string) { selected.value = { grade: g, subject: subjectName } }
 function closeDetails() { selected.value = null }
 
-// --- Ширина первой колонки (sticky-смещение второй) ---
-// Без ResizeObserver: он триггерит внутренний планировщик Vue и в HMR
-// падает на startTime. Вместо этого — watch + nextTick + rAF.
+// --- Sticky ---
 const firstColRef = ref<HTMLElement | null>(null)
 const col1Width = ref(0)
-
+let mounted = false
 function measure() {
-  if (typeof window === 'undefined') return
-  if (!firstColRef.value) return
-  requestAnimationFrame(() => {
-    if (!firstColRef.value) return
-    const w = firstColRef.value.offsetWidth
-    if (w && w !== col1Width.value) col1Width.value = w
-  })
+  if (!mounted || typeof window === 'undefined') return
+  const el = firstColRef.value
+  if (!el) return
+  const w = el.offsetWidth
+  if (w && w !== col1Width.value) col1Width.value = w
 }
-
-onMounted(() => {
-  nextTick(measure)
+onMounted(async () => {
+  mounted = true
+  await nextTick()
+  measure()
   window.addEventListener('resize', measure)
 })
-
-watch([effectiveSubjects, dates], () => nextTick(measure))
+onBeforeUnmount(() => {
+  mounted = false
+  if (typeof window !== 'undefined') window.removeEventListener('resize', measure)
+})
+watch([effectiveSubjects, dates], () => { if (mounted) nextTick(measure) })
 </script>
 
 <template>
@@ -154,21 +151,12 @@ watch([effectiveSubjects, dates], () => nextTick(measure))
 .col-avg { white-space: nowrap; width: max-content; background: #f1f5f9; font-weight: 600; }
 .col-date { white-space: nowrap; min-width: 40px; }
 .col-cell { min-width: 40px; }
-
-.sticky-1 {
-  position: sticky; left: 0; z-index: 2;
-  background: #fff; box-shadow: 2px 0 0 #e2e8f0;
-}
+.sticky-1 { position: sticky; left: 0; z-index: 2; background: #fff; box-shadow: 2px 0 0 #e2e8f0; }
 .matrix thead .sticky-1 { background: #f8fafc; z-index: 4; }
 .total-row .sticky-1 { background: #f8fafc; }
-
-.sticky-2 {
-  position: sticky; left: var(--col1-width, 0); z-index: 2;
-  background: #f1f5f9; box-shadow: 2px 0 0 #e2e8f0;
-}
+.sticky-2 { position: sticky; left: var(--col1-width, 0); z-index: 2; background: #f1f5f9; box-shadow: 2px 0 0 #e2e8f0; }
 .matrix thead .sticky-2 { background: #f1f5f9; z-index: 4; }
 .total-row .sticky-2 { background: #f8fafc; }
-
 .empty { color: #94a3b8; padding: 20px; }
 .total-row td { background: #f8fafc; font-weight: 600; }
 .hint { font-size: 12px; color: #94a3b8; margin-top: 6px; }

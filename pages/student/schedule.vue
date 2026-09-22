@@ -1,49 +1,59 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { LessonWithExtras } from '~/server/api/students/[id]/week-schedule.get'
-import { normalizeDate } from '~/composables/useDate'
+import { formatDayMonth } from '~/composables/useWeek'
+import { isToday } from '~/composables/useWeek'
 
 const appConfig = useAppConfig()
 const api = useApi()
 const { user } = useAuth()
 const studentId = computed(() => user.value?.student_id ?? null)
 
+const { weekStart, days, prev, next, goToday } = useWeek()
+
 const { data: lessons, pending } = await useAsyncData<LessonWithExtras[]>(
   'student-week-schedule',
-  () => studentId.value ? api.fetchStudentWeekSchedule(studentId.value) : Promise.resolve([]),
-  { watch: [studentId], default: () => [] as LessonWithExtras[] }
+  () => studentId.value ? api.fetchStudentWeekSchedule(studentId.value, weekStart.value) : Promise.resolve([]),
+  { watch: [studentId, weekStart], default: () => [] as LessonWithExtras[] }
 )
 
-const today = new Date().toISOString().slice(0, 10)
-
-const byDay = computed(() => {
-  const map = new Map<number, LessonWithExtras[]>()
+const byDate = computed(() => {
+  const m = new Map<string, LessonWithExtras[]>()
   for (const l of lessons.value ?? []) {
-    const filtered: LessonWithExtras = {
-      ...l,
-      homework: l.homework.filter(h => normalizeDate(h.due_date) >= today),
-    }
-    if (!map.has(l.day_of_week)) map.set(l.day_of_week, [])
-    map.get(l.day_of_week)!.push(filtered)
+    if (!m.has(l.date)) m.set(l.date, [])
+    m.get(l.date)!.push(l)
   }
-  return map
+  return m
 })
+
+// Опционально: заменяем date на dd.mm для заголовка дня
+function dayLabel(iso: string) {
+  const [, m, d] = iso.split('-')
+  return `${d}.${m}`
+}
 </script>
 
 <template>
   <div class="page">
     <h1>Расписание</h1>
 
+    <div class="toolbar">
+      <WeekSwitcher :model-value="weekStart" @update:model-value="weekStart = $event" />
+    </div>
+
     <p v-if="!studentId" class="error">Ученик не определён.</p>
-    <p v-else-if="pending && !lessons?.length" class="muted">Загрузка…</p>
+
+    <div v-else-if="pending && !lessons?.length" class="muted">Загрузка…</div>
 
     <div v-else class="layout">
       <div class="days">
-        <section v-for="day in 5" :key="day" class="day">
-          <h2>{{ appConfig.daysOfWeek[day - 1] }}</h2>
-          <template v-if="byDay.get(day)?.length">
+        <section v-for="(d, i) in days" :key="d" class="day">
+          <h2 :class="{ today: isToday(d) }">
+            {{ appConfig.daysOfWeek[i] }} · {{ dayLabel(d) }}
+          </h2>
+          <template v-if="byDate.get(d)?.length">
             <LessonCard
-              v-for="l in byDay.get(day)"
+              v-for="l in byDate.get(d)"
               :key="`${l.lesson_num}-${l.subject_id}`"
               :lesson="l"
             />
@@ -58,12 +68,14 @@ const byDay = computed(() => {
 
 <style scoped>
 .page { max-width: 1400px; margin: 24px auto; padding: 0 16px; font-family: system-ui, sans-serif; }
+.toolbar { margin-bottom: 16px; }
 .layout { display: grid; grid-template-columns: 1fr 200px; gap: 24px; align-items: start; }
 .days { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .day h2 {
   margin: 0 0 8px; font-size: 14px; color: #0f172a;
   border-bottom: 2px solid #2563eb; padding-bottom: 4px;
 }
+.day h2.today { border-color: #16a34a; color: #166534; }
 .muted { color: #94a3b8; font-size: 13px; }
 .small { font-size: 12px; }
 .error { color: #dc2626; }

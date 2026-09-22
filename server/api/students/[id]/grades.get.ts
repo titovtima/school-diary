@@ -13,7 +13,6 @@ export default defineEventHandler(async (event): Promise<StudentGradesResponse> 
   if (user.role === 'student' && user.student_id !== id)
     throw createError({ statusCode: 403, message: 'Нет доступа' })
 
-  // 1. Предметы класса ученика
   const subjects = await query<{ id: number; name: string }>(
     `SELECT sub.id, sub.name
      FROM students st
@@ -24,21 +23,19 @@ export default defineEventHandler(async (event): Promise<StudentGradesResponse> 
     [id]
   )
 
-  // 2. Оценки ученика
   const rawGrades = await query<any>(
     `SELECT g.id, g.student_id, g.subject_id, sub.name AS subject_name,
             g.grade_type_id, gt.name AS grade_type_name, gt.weight,
             g.value, to_char(g.lesson_date, 'YYYY-MM-DD') AS lesson_date,
-            g.comment
+            g.lesson_num, g.comment
      FROM grades g
      JOIN subjects sub ON sub.id = g.subject_id
      JOIN grade_types gt ON gt.id = g.grade_type_id
      WHERE g.student_id = $1
-     ORDER BY g.lesson_date DESC, g.id DESC`,
+     ORDER BY g.lesson_date DESC, g.lesson_num DESC, g.id DESC`,
     [id]
   )
 
-  // приводим weight и value к числам (pg numeric → строка)
   const grades: Grade[] = rawGrades.map(g => ({
     id: Number(g.id),
     student_id: Number(g.student_id),
@@ -49,6 +46,7 @@ export default defineEventHandler(async (event): Promise<StudentGradesResponse> 
     weight: Number(g.weight) || 1,
     value: Number(g.value),
     lesson_date: String(g.lesson_date),
+    lesson_num: Number(g.lesson_num) || 1,
     comment: g.comment ?? null,
   }))
 

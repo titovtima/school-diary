@@ -11,6 +11,7 @@ const props = defineProps<{
 }>()
 
 const api = useApi()
+const { user } = useAuth()
 
 const list = ref<Homework[]>([])
 const loading = ref(false)
@@ -31,7 +32,12 @@ watch(() => props.term, (t) => {
 }, { immediate: true })
 
 async function load() {
-  if (!props.classId) return
+  // Не грузим, если пользователь не авторизован, класс не выбран,
+  // или ещё нет предметов (значит страница только монтируется/размонтируется).
+  if (!user.value) { list.value = []; return }
+  if (!props.classId) { list.value = []; return }
+  if (!props.subjects.length) { list.value = []; return }
+
   loading.value = true
   try {
     const params: any = { showAll: !!props.showAll }
@@ -44,7 +50,7 @@ async function load() {
 }
 
 watch(
-  [() => props.classId, () => props.term, filterSubjectId, () => props.showAll],
+  [() => props.classId, () => props.term, filterSubjectId, () => props.showAll, () => user.value?.id],
   load,
   { immediate: true }
 )
@@ -149,10 +155,7 @@ const total = computed(() => list.value.length)
     <table v-else-if="list.length" class="hw-table">
       <thead>
         <tr>
-          <th>Предмет</th>
-          <th>Срок сдачи</th>
-          <th>Задание</th>
-          <th class="col-actions"></th>
+          <th>Предмет</th><th>Срок сдачи</th><th>Задание</th><th class="col-actions"></th>
         </tr>
       </thead>
       <tbody>
@@ -209,10 +212,7 @@ select, input, textarea { padding: 6px 8px; border: 1px solid #cbd5e1; border-ra
 .edit-row td { background: #f8fafc; }
 
 button { cursor: pointer; font: inherit; }
-.btn-add, .btn-primary {
-  padding: 7px 12px; border: none; border-radius: 6px;
-  background: #2563eb; color: #fff; font-weight: 600;
-}
+.btn-add, .btn-primary { padding: 7px 12px; border: none; border-radius: 6px; background: #2563eb; color: #fff; font-weight: 600; }
 .btn-add:hover, .btn-primary:hover { background: #1d4ed8; }
 .btn-ghost { padding: 7px 12px; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; }
 .btn-edit { padding: 4px 10px; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; margin-right: 6px; }

@@ -9,9 +9,17 @@ export interface ScheduleItem {
 }
 
 export interface Grade {
-  id: number; student_id: number; subject_id: number; subject_name: string
-  grade_type_id: number; grade_type_name: string; weight: number
-  value: number; lesson_date: string; comment: string | null
+  id: number
+  student_id: number
+  subject_id: number
+  subject_name: string
+  grade_type_id: number
+  grade_type_name: string
+  weight: number
+  value: number
+  lesson_date: string
+  lesson_num: number
+  comment: string | null
 }
 
 export interface Homework {
@@ -20,8 +28,13 @@ export interface Homework {
 }
 
 export interface NewGrade {
-  student_id: number; subject_id: number; grade_type_id: number
-  value: number; lesson_date: string; comment?: string
+  student_id: number
+  subject_id: number
+  grade_type_id: number
+  value: number
+  lesson_date: string
+  lesson_num: number
+  comment?: string
 }
 
 export interface NewHomework {
@@ -44,6 +57,7 @@ export interface Term {
 export interface MatrixCellGrade {
   id: number; value: number; weight: number
   grade_type_id: number; grade_type_name: string
+  lesson_num: number
 }
 
 export interface MatrixRow {

@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import type { LessonWithExtras } from '~/server/api/students/[id]/week-schedule.get'
 import { gradeWeightClass } from '~/composables/useGradeColor'
 import { formatDate } from '~/composables/useDate'
 
-const props = defineProps<{
-  lesson: LessonWithExtras
+interface Lesson {
+  day_of_week: number
+  lesson_num: number
+  date: string
+  subject_id: number
+  subject_name: string
+  teacher?: string | null
   className?: string
-}>()
+  grades: { value: number; weight: number; grade_type_name: string }[]
+  homework: { due_date: string; description: string }[]
+}
+
+const props = defineProps<{ lesson: Lesson }>()
 
 const { lessonTime } = useSchedule()
 </script>
@@ -17,7 +25,7 @@ const { lessonTime } = useSchedule()
       <span class="num">{{ props.lesson.lesson_num }}</span>
       <span class="time">{{ lessonTime(props.lesson.lesson_num) }}</span>
       <span class="subject">{{ props.lesson.subject_name }}</span>
-      <span v-if="props.className" class="class">· {{ props.className }}</span>
+      <span v-if="props.lesson.className" class="class">· {{ props.lesson.className }}</span>
     </header>
 
     <div v-if="props.lesson.teacher" class="teacher">

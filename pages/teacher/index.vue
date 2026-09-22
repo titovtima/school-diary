@@ -9,15 +9,11 @@ const userId = computed(() => user.value?.id ?? null)
 const isAdmin = computed(() => user.value?.is_admin === true)
 const showAll = ref(false)
 
-// Классы: зависят и от user, и от showAll
-const { data: classes, refresh: refreshClasses } = await useAsyncData<SchoolClass[]>(
+const { data: classes } = await useAsyncData<SchoolClass[]>(
   'teacher-my-classes',
-  () => userId.value
-    ? api.fetchMyClasses(isAdmin.value && showAll.value)
-    : Promise.resolve([]),
+  () => userId.value ? api.fetchMyClasses(isAdmin.value && showAll.value) : Promise.resolve([]),
   { watch: [userId, showAll], default: () => [] as SchoolClass[] }
 )
-
 const { data: terms } = await useAsyncData<Term[]>(
   'teacher-terms', () => api.fetchTerms(), { default: () => [] as Term[] }
 )
@@ -27,12 +23,12 @@ const { data: gradeTypes } = await useAsyncData<GradeType[]>(
 
 const selectedClassId = ref<number | null>(null)
 const selectedTermId = ref<number | null>(null)
+const selectedSubjectId = ref<number | null>(null)
 const subjects = ref<{ id: number; name: string }[]>([])
 const rows = ref<MatrixRow[]>([])
-const dates = ref<string[]>([])
+const columns = ref<{ date: string; lesson_num: number; multiLesson: boolean }[]>([])
 const activeTerm = ref<Term | null>(null)
 
-// При обновлении списка классов — выбрать первый, если текущий не в нём
 watch(classes, (list) => {
   if (!list?.length) { selectedClassId.value = null; return }
   if (!selectedClassId.value || !list.find(c => c.id === selectedClassId.value)) {
@@ -47,19 +43,42 @@ watch(terms, (list) => {
   selectedTermId.value = current?.id ?? list[0].id
 }, { immediate: true })
 
-async function load() {
-  if (!selectedClassId.value || !userId.value) return
+watch([selectedClassId, showAll, userId], async () => {
+  if (!selectedClassId.value || !userId.value) {
+    subjects.value = []
+    selectedSubjectId.value = null
+    return
+  }
   subjects.value = await api.fetchClassSubjects(selectedClassId.value, isAdmin.value && showAll.value)
+  if (!subjects.value.find(s => s.id === selectedSubjectId.value)) {
+    selectedSubjectId.value = subjects.value[0]?.id ?? null
+  }
+}, { immediate: true })
+
+/** Загрузка матрицы — вызывается и из watch, и из @changed. */
+async function loadMatrix() {
+  if (!selectedClassId.value || !selectedSubjectId.value || !userId.value) {
+    rows.value = []
+    columns.value = []
+    activeTerm.value = null
+    return
+  }
   const res = await api.fetchGradesMatrix(
     selectedClassId.value,
     selectedTermId.value ?? undefined,
     isAdmin.value && showAll.value,
+    selectedSubjectId.value ?? undefined,
   )
-  dates.value = res.dates
+  columns.value = res.columns
   rows.value = res.rows
   activeTerm.value = res.term
 }
-watch([selectedClassId, selectedTermId, showAll, userId], load, { immediate: true })
+
+watch(
+  [selectedClassId, selectedTermId, selectedSubjectId, showAll, userId],
+  loadMatrix,
+  { immediate: true, flush: 'post' }
+)
 </script>
 
 <template>
@@ -81,14 +100,21 @@ watch([selectedClassId, selectedTermId, showAll, userId], load, { immediate: tru
 
     <TeacherClassMatrix
       v-if="selectedClassId"
-      :rows="rows" :subjects="subjects" :dates="dates"
-      :class-id="selectedClassId" :term="activeTerm" :grade-types="gradeTypes || []"
-      @changed="load"
+      v-model:selected-subject-id="selectedSubjectId"
+      :rows="rows"
+      :subjects="subjects"
+      :columns="columns"
+      :class-id="selectedClassId"
+      :term="activeTerm"
+      :grade-types="gradeTypes || []"
+      @changed="loadMatrix"
     />
 
     <TeacherHomeworkList
       v-if="selectedClassId"
-      :class-id="selectedClassId" :subjects="subjects" :term="activeTerm"
+      :class-id="selectedClassId"
+      :subjects="subjects"
+      :term="activeTerm"
       :show-all="isAdmin && showAll"
     />
   </div>

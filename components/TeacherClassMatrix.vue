@@ -1,35 +1,47 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, nextTick } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import type { MatrixRow, Term, GradeType, MatrixCellGrade } from '~/types'
 import { gradeWeightClass } from '~/composables/useGradeColor'
 import { formatDateShort } from '~/composables/useDate'
 import { weightedAverage, formatAvg } from '~/composables/useGradeCalc'
 
+interface Column { date: string; lesson_num: number; multiLesson: boolean }
+
 const props = defineProps<{
   rows: MatrixRow[]
   subjects: { id: number; name: string }[]
-  dates: string[]
+  columns: Column[]
   classId: number
   term: Term | null
   gradeTypes: GradeType[]
+  selectedSubjectId: number | null
+}>()
+const emit = defineEmits<{
+  (e: 'changed'): void
+  (e: 'update:selectedSubjectId', v: number | null): void
 }>()
 
-const emit = defineEmits<{ (e: 'changed'): void }>()
-
 const api = useApi()
-const subjectId = ref<number | null>(null)
-const activeCell = ref<{ studentId: number; date: string } | null>(null)
-const details = ref<{ grade: MatrixCellGrade; student: string } | null>(null)
+const activeCell = ref<{ studentId: number; date: string; lesson_num: number } | null>(null)
+const details = ref<{ grade: MatrixCellGrade; student: string; date: string } | null>(null)
+
+const subjectId = computed({
+  get: () => props.selectedSubjectId,
+  set: v => emit('update:selectedSubjectId', v),
+})
 
 watch(() => props.subjects, (s) => {
-  if (s.length && !s.find(x => x.id === subjectId.value)) subjectId.value = s[0].id
+  if (s.length && (!subjectId.value || !s.find(x => x.id === subjectId.value))) {
+    subjectId.value = s[0].id
+  }
 }, { immediate: true })
 
-function cellGrades(studentId: number, date: string): MatrixCellGrade[] {
+function cellGrades(studentId: number, col: Column): MatrixCellGrade[] {
   if (!subjectId.value) return []
   const row = props.rows.find(r => r.student_id === studentId)
   if (!row) return []
-  return row.grades_by_subject[String(subjectId.value)]?.[String(date)] ?? []
+  const key = `${col.date}#${col.lesson_num}`
+  return row.grades_by_subject[String(subjectId.value)]?.[key] ?? []
 }
 function studentAvg(studentId: number): number | null {
   if (!subjectId.value) return null
@@ -40,11 +52,11 @@ function studentAvg(studentId: number): number | null {
   for (const arr of Object.values(m)) all.push(...arr)
   return weightedAverage(all)
 }
-function classAvgByDate(date: string): number | null {
+function columnAvg(col: Column): number | null {
   if (!subjectId.value) return null
   const all: MatrixCellGrade[] = []
   for (const r of props.rows) {
-    const arr = r.grades_by_subject[String(subjectId.value)]?.[String(date)] ?? []
+    const arr = cellGrades(r.student_id, col)
     all.push(...arr)
   }
   return weightedAverage(all)
@@ -60,8 +72,11 @@ const classAvg = computed<number | null>(() => {
   return weightedAverage(all)
 })
 
-function openCell(studentId: number, date: string) { activeCell.value = { studentId, date } }
+function openCell(studentId: number, col: Column) {
+  activeCell.value = { studentId, date: col.date, lesson_num: col.lesson_num }
+}
 function closePopover() { activeCell.value = null }
+
 async function quickGrade(value: number, gradeTypeId: number) {
   if (!activeCell.value || !subjectId.value) return
   await api.createGrade({
@@ -70,12 +85,14 @@ async function quickGrade(value: number, gradeTypeId: number) {
     grade_type_id: gradeTypeId,
     value,
     lesson_date: activeCell.value.date,
+    lesson_num: activeCell.value.lesson_num,
   })
   emit('changed')
 }
-function openDetails(g: MatrixCellGrade, studentName: string, e: MouseEvent) {
+
+function openDetails(g: MatrixCellGrade, studentName: string, date: string, e: MouseEvent) {
   e.stopPropagation()
-  details.value = { grade: g, student: studentName }
+  details.value = { grade: g, student: studentName, date }
 }
 function closeDetails() { details.value = null }
 async function deleteFromDetails(id: number) {
@@ -85,23 +102,32 @@ async function deleteFromDetails(id: number) {
   emit('changed')
 }
 
-// --- Sticky без ResizeObserver ---
+// --- Sticky ---
 const firstColRef = ref<HTMLElement | null>(null)
 const col1Width = ref(0)
+let mounted = false
 function measure() {
-  if (typeof window === 'undefined') return
-  if (!firstColRef.value) return
-  requestAnimationFrame(() => {
-    if (!firstColRef.value) return
-    const w = firstColRef.value.offsetWidth
-    if (w && w !== col1Width.value) col1Width.value = w
-  })
+  if (!mounted || typeof window === 'undefined') return
+  const el = firstColRef.value
+  if (!el) return
+  const w = el.offsetWidth
+  if (w && w !== col1Width.value) col1Width.value = w
 }
-onMounted(() => {
-  nextTick(measure)
+onMounted(async () => {
+  mounted = true
+  await nextTick(); measure()
   window.addEventListener('resize', measure)
 })
-watch([() => props.rows, () => props.subjects], () => nextTick(measure))
+onBeforeUnmount(() => {
+  mounted = false
+  if (typeof window !== 'undefined') window.removeEventListener('resize', measure)
+})
+watch([() => props.rows, () => props.subjects, subjectId], () => { if (mounted) nextTick(measure) })
+
+// Заголовок колонки: "17.10 (2)" если в этот день больше одного урока
+function colLabel(col: Column) {
+  return col.multiLesson ? `${formatDateShort(col.date)} (${col.lesson_num})` : formatDateShort(col.date)
+}
 </script>
 
 <template>
@@ -118,13 +144,19 @@ watch([() => props.rows, () => props.subjects], () => nextTick(measure))
       <span class="tip">Клик по ячейке — поставить оценку. Клик по оценке — детали.</span>
     </div>
 
-    <div class="matrix-wrap" :style="{ '--col1-width': col1Width + 'px' }">
+    <p v-if="!columns.length" class="muted">
+      В выбранной четверти по этому предмету нет уроков.
+    </p>
+
+    <div v-else class="matrix-wrap" :style="{ '--col1-width': col1Width + 'px' }">
       <table class="matrix">
         <thead>
           <tr>
             <th :ref="el => (firstColRef = el as HTMLElement | null)" class="col-student sticky-1">Ученик</th>
             <th class="col-avg sticky-2">Средн.</th>
-            <th v-for="d in dates" :key="d" class="col-date">{{ formatDateShort(d) }}</th>
+            <th v-for="(c, i) in columns" :key="`${c.date}-${c.lesson_num}-${i}`" class="col-date">
+              {{ colLabel(c) }}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -132,29 +164,31 @@ watch([() => props.rows, () => props.subjects], () => nextTick(measure))
             <td class="col-student sticky-1">{{ r.student_name }}</td>
             <td class="col-avg sticky-2">{{ formatAvg(studentAvg(r.student_id)) }}</td>
             <td
-              v-for="d in dates"
-              :key="d"
+              v-for="(c, i) in columns"
+              :key="`${c.date}-${c.lesson_num}-${i}`"
               class="cell"
-              :class="{ active: activeCell && activeCell.studentId === r.student_id && activeCell.date === d }"
-              @click="openCell(r.student_id, d)"
+              :class="{ active: activeCell && activeCell.studentId === r.student_id && activeCell.date === c.date && activeCell.lesson_num === c.lesson_num }"
+              @click="openCell(r.student_id, c)"
             >
               <span
-                v-for="g in cellGrades(r.student_id, d)"
+                v-for="g in cellGrades(r.student_id, c)"
                 :key="g.id"
                 class="grade"
                 :class="gradeWeightClass(g.weight)"
                 :title="`${g.grade_type_name} · вес ${g.weight}`"
-                @click="openDetails(g, r.student_name, $event)"
+                @click="openDetails(g, r.student_name, c.date, $event)"
               >{{ g.value }}</span>
             </td>
           </tr>
           <tr v-if="!rows.length">
-            <td :colspan="dates.length + 2" class="empty">Нет данных</td>
+            <td :colspan="columns.length + 2" class="empty">Нет данных</td>
           </tr>
           <tr v-else class="total-row">
             <td class="col-student sticky-1">Средн. по дню</td>
             <td class="col-avg sticky-2">{{ formatAvg(classAvg) }}</td>
-            <td v-for="d in dates" :key="d" class="avg">{{ formatAvg(classAvgByDate(d)) }}</td>
+            <td v-for="(c, i) in columns" :key="`${c.date}-${c.lesson_num}-${i}`" class="avg">
+              {{ formatAvg(columnAvg(c)) }}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -165,7 +199,8 @@ watch([() => props.rows, () => props.subjects], () => nextTick(measure))
     <div v-if="activeCell" class="overlay" @click.self="closePopover">
       <div class="popover">
         <div class="popover-head">
-          {{ activeCell.date }} — {{ rows.find(r => r.student_id === activeCell!.studentId)?.student_name }}
+          {{ activeCell.date }} · урок {{ activeCell.lesson_num }} —
+          {{ rows.find(r => r.student_id === activeCell!.studentId)?.student_name }}
         </div>
         <p class="hint">Можно поставить несколько оценок за один урок — попап не закроется.</p>
         <div v-for="gt in gradeTypes" :key="gt.id" class="row">
@@ -174,16 +209,16 @@ watch([() => props.rows, () => props.subjects], () => nextTick(measure))
             <button v-for="v in [5, 4, 3, 2]" :key="v" @click="quickGrade(v, gt.id)">{{ v }}</button>
           </div>
         </div>
-        <div v-if="cellGrades(activeCell!.studentId, activeCell!.date).length" class="current">
+        <div v-if="cellGrades(activeCell!.studentId, { date: activeCell!.date, lesson_num: activeCell!.lesson_num, multiLesson: false }).length" class="current">
           <div class="current-head">Оценки за этот урок:</div>
           <div class="current-list">
             <span
-              v-for="g in cellGrades(activeCell!.studentId, activeCell!.date)"
+              v-for="g in cellGrades(activeCell!.studentId, { date: activeCell!.date, lesson_num: activeCell!.lesson_num, multiLesson: false })"
               :key="g.id"
               class="grade"
               :class="gradeWeightClass(g.weight)"
               :title="`${g.grade_type_name} (вес ${g.weight})`"
-              @click="openDetails(g, rows.find(r => r.student_id === activeCell!.studentId)?.student_name ?? '', $event)"
+              @click="openDetails(g, rows.find(r => r.student_id === activeCell!.studentId)?.student_name ?? '', activeCell!.date, $event)"
             >{{ g.value }}</span>
           </div>
         </div>
@@ -199,7 +234,7 @@ watch([() => props.rows, () => props.subjects], () => nextTick(measure))
         weight: details.grade.weight,
         grade_type_name: details.grade.grade_type_name,
         subject_name: subjects.find(s => s.id === subjectId)?.name,
-        lesson_date: activeCell?.date,
+        lesson_date: details.date,
       }"
       :title="details.student"
       deletable
@@ -214,6 +249,7 @@ watch([() => props.rows, () => props.subjects], () => nextTick(measure))
 .class-avg { font-size: 14px; color: #475569; }
 .class-avg b { color: #0f172a; }
 .tip { font-size: 12px; color: #94a3b8; }
+.muted { color: #94a3b8; font-size: 13px; }
 
 .matrix-wrap { overflow-x: auto; max-height: 70vh; overflow-y: auto; position: relative; }
 .matrix { border-collapse: separate; border-spacing: 0; font-size: 12px; }
@@ -227,27 +263,21 @@ watch([() => props.rows, () => props.subjects], () => nextTick(measure))
 .matrix thead th { background: #f8fafc; position: sticky; top: 0; z-index: 3; }
 .col-student { text-align: left; white-space: nowrap; width: max-content; }
 .col-avg { white-space: nowrap; width: max-content; background: #f1f5f9; font-weight: 600; }
-.col-date { white-space: nowrap; min-width: 56px; }
+.col-date { white-space: nowrap; min-width: 72px; }
 .cell { min-width: 44px; cursor: pointer; }
 .cell:hover { background: #f1f5f9; }
 .cell.active { background: #dbeafe; }
 
-.sticky-1 {
-  position: sticky; left: 0; z-index: 2;
-  background: #fff; box-shadow: 2px 0 0 #e2e8f0;
-}
+.sticky-1 { position: sticky; left: 0; z-index: 2; background: #fff; box-shadow: 2px 0 0 #e2e8f0; }
 .matrix thead .sticky-1 { background: #f8fafc; z-index: 5; }
 .total-row .sticky-1 { background: #f8fafc; }
-
-.sticky-2 {
-  position: sticky; left: var(--col1-width, 0); z-index: 2;
-  background: #f1f5f9; box-shadow: 2px 0 0 #e2e8f0;
-}
+.sticky-2 { position: sticky; left: var(--col1-width, 0); z-index: 2; background: #f1f5f9; box-shadow: 2px 0 0 #e2e8f0; }
 .matrix thead .sticky-2 { background: #f1f5f9; z-index: 5; }
 .total-row .sticky-2 { background: #f8fafc; }
 
 .empty { color: #94a3b8; padding: 20px; }
 .total-row td { background: #f8fafc; font-weight: 600; }
+
 .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .popover { background: #fff; padding: 16px 20px; border-radius: 10px; min-width: 380px; max-width: 520px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 40px rgba(0,0,0,.2); }
 .popover-head { font-size: 14px; color: #475569; margin-bottom: 10px; }

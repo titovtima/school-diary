@@ -25,8 +25,10 @@ export const useAuth = () => {
   }
 
   async function logout(): Promise<void> {
-    try { await $fetch('/api/auth/logout', { method: 'POST' }) } catch { /* noop */ }
+    // Сначала обнуляем состояние — чтобы все watch'и на user перестали
+    // дёргать защищённые эндпоинты, и не было 401 в консоли.
     user.value = null
+    try { await $fetch('/api/auth/logout', { method: 'POST' }) } catch { /* noop */ }
     await navigateTo('/login')
   }
 
