@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { computed, ref, onMounted, watch, nextTick } from 'vue'
 import type { Grade, Term, GradeType } from '~/types'
 import { gradeWeightClass } from '~/composables/useGradeColor'
 import { formatDateShort, schoolDaysBetween, normalizeDate } from '~/composables/useDate'
@@ -49,38 +49,32 @@ function cell(subjectId: number, date: string): Grade[] {
 function subjectAvg(subjectId: number): number | null {
   return weightedAverage(props.grades.filter(g => g.subject_id === subjectId))
 }
-
 const totalAvg = computed(() => weightedAverage(props.grades))
 
 function openDetails(g: Grade, subjectName: string) {
   selected.value = { grade: g, subject: subjectName }
 }
-function closeDetails() {
-  selected.value = null
-}
+function closeDetails() { selected.value = null }
 
-// === Sticky ===
+// --- Ширина первой колонки (sticky-смещение второй) ---
+// Без ResizeObserver: он триггерит внутренний планировщик Vue и в HMR
+// падает на startTime. Вместо этого — watch + nextTick + rAF.
 const firstColRef = ref<HTMLElement | null>(null)
 const col1Width = ref(0)
-let ro: ResizeObserver | null = null
 
 function measure() {
-  if (firstColRef.value) col1Width.value = firstColRef.value.offsetWidth
+  if (typeof window === 'undefined') return
+  if (!firstColRef.value) return
+  requestAnimationFrame(() => {
+    if (!firstColRef.value) return
+    const w = firstColRef.value.offsetWidth
+    if (w && w !== col1Width.value) col1Width.value = w
+  })
 }
 
-onMounted(async () => {
-  await nextTick()
-  measure()
-  if (firstColRef.value && 'ResizeObserver' in window) {
-    ro = new ResizeObserver(measure)
-    ro.observe(firstColRef.value)
-  }
+onMounted(() => {
+  nextTick(measure)
   window.addEventListener('resize', measure)
-})
-
-onBeforeUnmount(() => {
-  ro?.disconnect()
-  window.removeEventListener('resize', measure)
 })
 
 watch([effectiveSubjects, dates], () => nextTick(measure))
@@ -146,7 +140,6 @@ watch([effectiveSubjects, dates], () => nextTick(measure))
 
 <style scoped>
 .matrix-root { display: flex; flex-direction: column; }
-
 .matrix-wrap { overflow-x: auto; position: relative; }
 .matrix { border-collapse: separate; border-spacing: 0; font-size: 12px; }
 .matrix th, .matrix td {
@@ -157,7 +150,6 @@ watch([effectiveSubjects, dates], () => nextTick(measure))
   background: #fff;
 }
 .matrix thead th { background: #f8fafc; font-weight: 600; }
-
 .col-subject { text-align: left; white-space: nowrap; width: max-content; }
 .col-avg { white-space: nowrap; width: max-content; background: #f1f5f9; font-weight: 600; }
 .col-date { white-space: nowrap; min-width: 40px; }

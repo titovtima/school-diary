@@ -2,23 +2,33 @@ import type { AuthUser } from '~/types'
 
 export const useAuth = () => {
   const user = useState<AuthUser | null>('auth-user', () => null)
+  const ready = useState<boolean>('auth-ready', () => false)
 
   async function refresh(): Promise<void> {
-    user.value = await $fetch<AuthUser | null>('/api/auth/me')
+    const fetch = useRequestFetch()
+    try {
+      user.value = await fetch<AuthUser | null>('/api/auth/me')
+    } catch {
+      user.value = null
+    }
+    ready.value = true
   }
-  async function login(loginStr: string, password: string): Promise<AuthUser> {
-    const u = await $fetch<AuthUser>('/api/auth/login', {
+
+  async function login(loginStr: string, password: string, remember = false): Promise<AuthUser> {
+    const res = await $fetch<{ user: AuthUser }>('/api/auth/login', {
       method: 'POST',
-      body: { login: loginStr, password },
+      body: { login: loginStr, password, remember },
     })
-    user.value = u
-    return u
+    user.value = res.user
+    ready.value = true
+    return res.user
   }
+
   async function logout(): Promise<void> {
-    await $fetch('/api/auth/logout', { method: 'POST' })
+    try { await $fetch('/api/auth/logout', { method: 'POST' }) } catch { /* noop */ }
     user.value = null
     await navigateTo('/login')
   }
 
-  return { user, refresh, login, logout }
+  return { user, ready, refresh, login, logout }
 }

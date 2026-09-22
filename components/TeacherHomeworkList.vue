@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import type { Homework } from '~/types'
 import { formatDate } from '~/composables/useDate'
 
@@ -7,6 +7,7 @@ const props = defineProps<{
   classId: number
   subjects: { id: number; name: string }[]
   term: { id: number; name: string; start_date: string; end_date: string } | null
+  showAll?: boolean
 }>()
 
 const api = useApi()
@@ -15,11 +16,9 @@ const list = ref<Homework[]>([])
 const loading = ref(false)
 const filterSubjectId = ref<number | 'all'>('all')
 
-// форма добавления
 const showAdd = ref(false)
 const addForm = ref({ subject_id: 0, due_date: '', description: '' })
 
-// форма редактирования — какая строка сейчас редактируется
 const editingId = ref<number | null>(null)
 const editForm = ref({ subject_id: 0, due_date: '', description: '' })
 
@@ -35,7 +34,7 @@ async function load() {
   if (!props.classId) return
   loading.value = true
   try {
-    const params: any = {}
+    const params: any = { showAll: !!props.showAll }
     if (filterSubjectId.value !== 'all') params.subject_id = filterSubjectId.value
     if (props.term) { params.from = props.term.start_date; params.to = props.term.end_date }
     list.value = await api.fetchClassHomework(props.classId, params)
@@ -44,7 +43,11 @@ async function load() {
   }
 }
 
-watch([() => props.classId, () => props.term, filterSubjectId], load, { immediate: true })
+watch(
+  [() => props.classId, () => props.term, filterSubjectId, () => props.showAll],
+  load,
+  { immediate: true }
+)
 
 function openAdd() {
   addForm.value = {
@@ -78,16 +81,12 @@ function startEdit(h: Homework) {
     description: h.description,
   }
 }
-
-function cancelEdit() {
-  editingId.value = null
-}
+function cancelEdit() { editingId.value = null }
 
 async function submitEdit() {
   if (!editingId.value) return
   if (!editForm.value.description.trim()) {
-    alert('Текст задания не может быть пустым')
-    return
+    alert('Текст задания не может быть пустым'); return
   }
   await api.updateHomework(editingId.value, {
     subject_id: editForm.value.subject_id,
@@ -123,7 +122,6 @@ const total = computed(() => list.value.length)
       </div>
     </header>
 
-    <!-- форма добавления -->
     <div v-if="showAdd" class="hw-form-row">
       <div class="grid">
         <label>
@@ -139,7 +137,7 @@ const total = computed(() => list.value.length)
       </div>
       <label class="full">
         Задание
-        <textarea v-model="addForm.description" rows="3" placeholder="Что задано"></textarea>
+        <textarea v-model="addForm.description" rows="3"></textarea>
       </label>
       <div class="actions">
         <button class="btn-primary" @click="submitAdd">Сохранить</button>
@@ -168,20 +166,14 @@ const total = computed(() => list.value.length)
               <button class="btn-del" @click="remove(h)">Удалить</button>
             </td>
           </tr>
-
-          <!-- строка в режиме редактирования -->
           <tr v-else class="edit-row">
             <td>
               <select v-model.number="editForm.subject_id">
                 <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
               </select>
             </td>
-            <td>
-              <input v-model="editForm.due_date" type="date">
-            </td>
-            <td>
-              <textarea v-model="editForm.description" rows="3"></textarea>
-            </td>
+            <td><input v-model="editForm.due_date" type="date"></td>
+            <td><textarea v-model="editForm.description" rows="3"></textarea></td>
             <td class="actions-cell">
               <button class="btn-primary" @click="submitEdit">Сохранить</button>
               <button class="btn-ghost" @click="cancelEdit">Отмена</button>
@@ -190,31 +182,20 @@ const total = computed(() => list.value.length)
         </template>
       </tbody>
     </table>
-
-    <p v-else class="muted">
-      Домашних заданий за выбранный период нет.
-    </p>
+    <p v-else class="muted">Домашних заданий за выбранный период нет.</p>
   </section>
 </template>
 
 <style scoped>
 .hw-section { margin: 24px 0; }
-.hw-header {
-  display: flex; justify-content: space-between; align-items: center;
-  gap: 16px; flex-wrap: wrap; margin-bottom: 12px;
-}
+.hw-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
 h2 { margin: 0; font-size: 18px; color: #0f172a; }
 .count { color: #64748b; font-weight: 400; font-size: 14px; }
 .hw-controls { display: flex; gap: 12px; align-items: center; }
 label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #475569; }
-select, input, textarea {
-  padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit;
-}
+select, input, textarea { padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; }
 
-.hw-form-row {
-  border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;
-  margin-bottom: 16px; background: #fff;
-}
+.hw-form-row { border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; background: #fff; }
 .hw-form-row .grid { display: grid; grid-template-columns: 1fr 180px; gap: 12px; margin-bottom: 10px; }
 .hw-form-row .full { display: grid; gap: 4px; font-size: 13px; color: #475569; margin-bottom: 10px; }
 
@@ -233,19 +214,9 @@ button { cursor: pointer; font: inherit; }
   background: #2563eb; color: #fff; font-weight: 600;
 }
 .btn-add:hover, .btn-primary:hover { background: #1d4ed8; }
-.btn-ghost {
-  padding: 7px 12px; border: 1px solid #cbd5e1; background: #fff;
-  border-radius: 6px;
-}
-.btn-edit {
-  padding: 4px 10px; border: 1px solid #cbd5e1; background: #fff;
-  border-radius: 6px; margin-right: 6px;
-}
-.btn-del {
-  padding: 4px 10px; border: 1px solid #fecaca; background: #fff;
-  color: #dc2626; border-radius: 6px;
-}
+.btn-ghost { padding: 7px 12px; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; }
+.btn-edit { padding: 4px 10px; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; margin-right: 6px; }
+.btn-del { padding: 4px 10px; border: 1px solid #fecaca; background: #fff; color: #dc2626; border-radius: 6px; }
 .btn-del:hover { background: #fee2e2; }
-
 .muted { color: #94a3b8; font-size: 13px; }
 </style>

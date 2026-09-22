@@ -10,13 +10,12 @@ export interface AuthUser {
   student_id: number | null
 }
 
-const COOKIE = 'session_token'
-const TTL_DAYS = 14
+export const COOKIE = 'session_token'
+export const TTL_DAYS = 14
 
 export function hashPassword(pwd: string): string {
   return bcrypt.hashSync(pwd, 10)
 }
-
 export function verifyPassword(pwd: string, hash: string): boolean {
   return bcrypt.compareSync(pwd, hash)
 }
@@ -57,13 +56,14 @@ export async function requireTeacher(event: H3Event): Promise<AuthUser> {
   return user
 }
 
-export function setSessionCookie(event: H3Event, token: string): void {
-  setCookie(event, COOKIE, token, {
+export function setSessionCookie(event: H3Event, token: string, remember = true): void {
+  const opts: Parameters<typeof setCookie>[3] = {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
-    maxAge: TTL_DAYS * 24 * 3600,
-  })
+  }
+  if (remember) opts.maxAge = TTL_DAYS * 24 * 3600
+  setCookie(event, COOKIE, token, opts)
 }
 
 export function clearSessionCookie(event: H3Event): void {

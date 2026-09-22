@@ -4,7 +4,5 @@ useHead({ title: `Вход · ${appConfig.school.shortName}` })
 </script>
 
 <template>
-  <div>
-    <LoginForm />
-  </div>
+  <LoginForm />
 </template>

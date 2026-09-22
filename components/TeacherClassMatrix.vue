@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { computed, ref, watch, onMounted, nextTick } from 'vue'
 import type { MatrixRow, Term, GradeType, MatrixCellGrade } from '~/types'
 import { gradeWeightClass } from '~/composables/useGradeColor'
 import { formatDateShort } from '~/composables/useDate'
@@ -31,7 +31,6 @@ function cellGrades(studentId: number, date: string): MatrixCellGrade[] {
   if (!row) return []
   return row.grades_by_subject[String(subjectId.value)]?.[String(date)] ?? []
 }
-
 function studentAvg(studentId: number): number | null {
   if (!subjectId.value) return null
   const row = props.rows.find(r => r.student_id === studentId)
@@ -41,7 +40,6 @@ function studentAvg(studentId: number): number | null {
   for (const arr of Object.values(m)) all.push(...arr)
   return weightedAverage(all)
 }
-
 function classAvgByDate(date: string): number | null {
   if (!subjectId.value) return null
   const all: MatrixCellGrade[] = []
@@ -51,7 +49,6 @@ function classAvgByDate(date: string): number | null {
   }
   return weightedAverage(all)
 }
-
 const classAvg = computed<number | null>(() => {
   if (!subjectId.value) return null
   const all: MatrixCellGrade[] = []
@@ -63,14 +60,8 @@ const classAvg = computed<number | null>(() => {
   return weightedAverage(all)
 })
 
-// Пустая ячейка → открыть попап постановки оценки
-function openCell(studentId: number, date: string) {
-  activeCell.value = { studentId, date }
-}
-function closePopover() {
-  activeCell.value = null
-}
-
+function openCell(studentId: number, date: string) { activeCell.value = { studentId, date } }
+function closePopover() { activeCell.value = null }
 async function quickGrade(value: number, gradeTypeId: number) {
   if (!activeCell.value || !subjectId.value) return
   await api.createGrade({
@@ -82,15 +73,11 @@ async function quickGrade(value: number, gradeTypeId: number) {
   })
   emit('changed')
 }
-
-// Клик по существующей оценке → попап с деталями
 function openDetails(g: MatrixCellGrade, studentName: string, e: MouseEvent) {
   e.stopPropagation()
   details.value = { grade: g, student: studentName }
 }
-function closeDetails() {
-  details.value = null
-}
+function closeDetails() { details.value = null }
 async function deleteFromDetails(id: number) {
   if (!confirm('Удалить оценку?')) return
   await api.deleteGrade(id)
@@ -98,27 +85,23 @@ async function deleteFromDetails(id: number) {
   emit('changed')
 }
 
-// === Sticky ===
+// --- Sticky без ResizeObserver ---
 const firstColRef = ref<HTMLElement | null>(null)
 const col1Width = ref(0)
-let ro: ResizeObserver | null = null
 function measure() {
-  if (firstColRef.value) col1Width.value = firstColRef.value.offsetWidth
+  if (typeof window === 'undefined') return
+  if (!firstColRef.value) return
+  requestAnimationFrame(() => {
+    if (!firstColRef.value) return
+    const w = firstColRef.value.offsetWidth
+    if (w && w !== col1Width.value) col1Width.value = w
+  })
 }
-onMounted(async () => {
-  await nextTick()
-  measure()
-  if (firstColRef.value && 'ResizeObserver' in window) {
-    ro = new ResizeObserver(measure)
-    ro.observe(firstColRef.value)
-  }
+onMounted(() => {
+  nextTick(measure)
   window.addEventListener('resize', measure)
 })
-onBeforeUnmount(() => {
-  ro?.disconnect()
-  window.removeEventListener('resize', measure)
-})
-watch(() => props.rows, () => nextTick(measure))
+watch([() => props.rows, () => props.subjects], () => nextTick(measure))
 </script>
 
 <template>
@@ -179,7 +162,6 @@ watch(() => props.rows, () => nextTick(measure))
 
     <GradeLegend v-if="gradeTypes.length" :types="gradeTypes" />
 
-    <!-- Попап постановки оценок (пустая ячейка) -->
     <div v-if="activeCell" class="overlay" @click.self="closePopover">
       <div class="popover">
         <div class="popover-head">
@@ -187,9 +169,7 @@ watch(() => props.rows, () => nextTick(measure))
         </div>
         <p class="hint">Можно поставить несколько оценок за один урок — попап не закроется.</p>
         <div v-for="gt in gradeTypes" :key="gt.id" class="row">
-          <span class="type-name">
-            {{ gt.name }} <small>(вес {{ gt.weight }})</small>
-          </span>
+          <span class="type-name">{{ gt.name }} <small>(вес {{ gt.weight }})</small></span>
           <div class="values">
             <button v-for="v in [5, 4, 3, 2]" :key="v" @click="quickGrade(v, gt.id)">{{ v }}</button>
           </div>
@@ -202,7 +182,7 @@ watch(() => props.rows, () => nextTick(measure))
               :key="g.id"
               class="grade"
               :class="gradeWeightClass(g.weight)"
-              :title="`${g.grade_type_name} (вес ${g.weight}). Клик — детали.`"
+              :title="`${g.grade_type_name} (вес ${g.weight})`"
               @click="openDetails(g, rows.find(r => r.student_id === activeCell!.studentId)?.student_name ?? '', $event)"
             >{{ g.value }}</span>
           </div>
@@ -211,7 +191,6 @@ watch(() => props.rows, () => nextTick(measure))
       </div>
     </div>
 
-    <!-- Попап деталей оценки -->
     <GradeDetailsPopover
       v-if="details"
       :grade="{
@@ -246,7 +225,6 @@ watch(() => props.rows, () => nextTick(measure))
   background: #fff;
 }
 .matrix thead th { background: #f8fafc; position: sticky; top: 0; z-index: 3; }
-
 .col-student { text-align: left; white-space: nowrap; width: max-content; }
 .col-avg { white-space: nowrap; width: max-content; background: #f1f5f9; font-weight: 600; }
 .col-date { white-space: nowrap; min-width: 56px; }
@@ -270,32 +248,17 @@ watch(() => props.rows, () => nextTick(measure))
 
 .empty { color: #94a3b8; padding: 20px; }
 .total-row td { background: #f8fafc; font-weight: 600; }
-
-.overlay {
-  position: fixed; inset: 0; background: rgba(15,23,42,.4);
-  display: flex; align-items: center; justify-content: center; z-index: 100;
-}
-.popover {
-  background: #fff; padding: 16px 20px; border-radius: 10px;
-  min-width: 380px; max-width: 520px; max-height: 80vh; overflow-y: auto;
-  box-shadow: 0 20px 40px rgba(0,0,0,.2);
-}
+.overlay { position: fixed; inset: 0; background: rgba(15,23,42,.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.popover { background: #fff; padding: 16px 20px; border-radius: 10px; min-width: 380px; max-width: 520px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 40px rgba(0,0,0,.2); }
 .popover-head { font-size: 14px; color: #475569; margin-bottom: 10px; }
 .hint { font-size: 12px; color: #64748b; margin: 4px 0 10px; }
 .row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
 .type-name { font-size: 13px; }
 .type-name small { color: #94a3b8; }
-.values button {
-  width: 30px; height: 30px; margin-left: 4px;
-  border: 1px solid #cbd5e1; background: #fff;
-  border-radius: 6px; cursor: pointer; font-weight: 600;
-}
+.values button { width: 30px; height: 30px; margin-left: 4px; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; cursor: pointer; font-weight: 600; }
 .values button:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
 .current { margin-top: 12px; padding-top: 10px; border-top: 1px dashed #e2e8f0; }
 .current-head { font-size: 12px; color: #64748b; margin-bottom: 6px; }
 .current-list { display: flex; gap: 6px; flex-wrap: wrap; }
-.close {
-  margin-top: 12px; width: 100%; padding: 8px;
-  border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; cursor: pointer;
-}
+.close { margin-top: 12px; width: 100%; padding: 8px; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; cursor: pointer; }
 </style>

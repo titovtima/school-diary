@@ -1,28 +1,38 @@
-import {
-  verifyPassword, createSession, setSessionCookie,
-} from '~/server/utils/auth'
+import { verifyPassword, createSession, setSessionCookie } from '~/server/utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const { login, password } = await readBody<{ login: string; password: string }>(event)
-  if (!login || !password)
+  const body = await readBody<{
+    login: string
+    password: string
+    remember?: boolean
+  }>(event)
+
+  if (!body?.login || !body?.password)
     throw createError({ statusCode: 400, message: 'Логин и пароль обязательны' })
 
   const rows = await query<{
     id: number; password_hash: string; role: 'teacher' | 'student'
-    full_name: string; student_id: number | null
+    full_name: string; student_id: number | null; is_admin: boolean
   }>(
-    `SELECT id, password_hash, role, full_name, student_id
+    `SELECT id, password_hash, role, full_name, student_id, is_admin
      FROM users WHERE login = $1`,
-    [login]
+    [body.login]
   )
   const user = rows[0]
-  if (!user || !verifyPassword(password, user.password_hash))
+  if (!user || !verifyPassword(body.password, user.password_hash))
     throw createError({ statusCode: 401, message: 'Неверный логин или пароль' })
 
   const token = await createSession(user.id)
-  setSessionCookie(event, token)
+  setSessionCookie(event, token, body.remember !== false) // по умолчанию true
+
   return {
-    id: user.id, role: user.role,
-    full_name: user.full_name, student_id: user.student_id,
+    user: {
+      id: user.id,
+      login: body.login,
+      role: user.role,
+      full_name: user.full_name,
+      student_id: user.student_id,
+      is_admin: user.is_admin ?? false,
+    },
   }
 })

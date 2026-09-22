@@ -1,5 +1,5 @@
 export default defineNuxtConfig({
-  devtools: { enabled: true },
+  devtools: { enabled: false },
   typescript: { strict: true },
   css: ['~/assets/grade-colors.css'],
 
@@ -13,17 +13,14 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      // Значения по умолчанию — перезаписываются на клиенте из app.config.ts
       title: 'Школа Ветви',
       htmlAttrs: { lang: 'ru' },
       meta: [
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-        { name: 'description', content: 'Электронный дневник школы «Ветви»' },
       ],
       link: [
         { rel: 'icon', type: 'image/jpeg', href: '/vetvi-school.jpg' },
-        { rel: 'apple-touch-icon', href: '/vetvi-school.jpg' },
       ],
     },
   },
