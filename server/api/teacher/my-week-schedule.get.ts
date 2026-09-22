@@ -15,10 +15,21 @@ function addDays(iso: string, days: number): string {
 export default defineEventHandler(async (event) => {
   const user = await requireTeacher(event)
   const url = getRequestURL(event)
-  const weekStartParam = url.searchParams.get('week_start')
   const today = new Date().toISOString().slice(0, 10)
-  const weekStart = mondayOfWeek(weekStartParam || today)
+  const weekStart = mondayOfWeek(url.searchParams.get('week_start') || today)
   const weekEnd = addDays(weekStart, 4)
+
+  // Праздники
+  const holidayRows = await query<{ d: string }>(
+    `SELECT to_char(d,'YYYY-MM-DD') AS d
+     FROM generate_series($1::date, $2::date, INTERVAL '1 day') AS d
+     WHERE EXISTS (
+       SELECT 1 FROM holidays h
+       WHERE h.start_date <= d::date AND h.end_date >= d::date
+     )`,
+    [weekStart, weekEnd]
+  )
+  const holidays = new Set(holidayRows.map(r => r.d))
 
   const lessons = await query<{
     day_of_week: number; lesson_num: number
@@ -56,10 +67,12 @@ export default defineEventHandler(async (event) => {
     hwIndex.get(key)!.push(h)
   }
 
-  return lessons.map(l => {
+  const result = []
+  for (const l of lessons) {
     const date = addDays(weekStart, l.day_of_week - 1)
+    if (holidays.has(date)) continue
     const key = `${l.class_id}|${l.subject_id}|${date}`
-    return {
+    result.push({
       day_of_week: l.day_of_week,
       lesson_num: l.lesson_num,
       date,
@@ -72,6 +85,7 @@ export default defineEventHandler(async (event) => {
         due_date: h.due_date,
         description: h.description,
       })),
-    }
-  })
+    })
+  }
+  return result
 })

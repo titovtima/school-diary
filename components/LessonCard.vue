@@ -1,22 +1,20 @@
 <script setup lang="ts">
+import type { LessonWithExtras, LessonGrade } from '~/server/api/students/[id]/week-schedule.get'
 import { gradeWeightClass } from '~/composables/useGradeColor'
 import { formatDate } from '~/composables/useDate'
 
-interface Lesson {
-  day_of_week: number
-  lesson_num: number
-  date: string
-  subject_id: number
-  subject_name: string
-  teacher?: string | null
-  className?: string
-  grades: { value: number; weight: number; grade_type_name: string }[]
-  homework: { due_date: string; description: string }[]
-}
-
-const props = defineProps<{ lesson: Lesson }>()
+const props = defineProps<{ lesson: LessonWithExtras }>()
 
 const { lessonTime } = useSchedule()
+
+const selected = ref<LessonGrade | null>(null)
+
+function openDetails(g: LessonGrade) {
+  selected.value = g
+}
+function closeDetails() {
+  selected.value = null
+}
 </script>
 
 <template>
@@ -25,7 +23,6 @@ const { lessonTime } = useSchedule()
       <span class="num">{{ props.lesson.lesson_num }}</span>
       <span class="time">{{ lessonTime(props.lesson.lesson_num) }}</span>
       <span class="subject">{{ props.lesson.subject_name }}</span>
-      <span v-if="props.lesson.className" class="class">· {{ props.lesson.className }}</span>
     </header>
 
     <div v-if="props.lesson.teacher" class="teacher">
@@ -35,11 +32,12 @@ const { lessonTime } = useSchedule()
     <div v-if="props.lesson.grades.length" class="row">
       <span class="label">Оценки:</span>
       <span
-        v-for="(g, i) in props.lesson.grades"
-        :key="i"
+        v-for="g in props.lesson.grades"
+        :key="g.id"
         class="grade"
         :class="gradeWeightClass(g.weight)"
-        :title="`${g.grade_type_name} (вес ${g.weight})`"
+        :title="`${g.grade_type_name} · вес ${g.weight}`"
+        @click="openDetails(g)"
       >{{ g.value }}</span>
     </div>
 
@@ -52,6 +50,21 @@ const { lessonTime } = useSchedule()
         </li>
       </ul>
     </div>
+
+    <GradeDetailsPopover
+      v-if="selected"
+      :grade="{
+        id: selected.id,
+        value: selected.value,
+        weight: selected.weight,
+        grade_type_name: selected.grade_type_name,
+        subject_name: selected.subject_name,
+        lesson_date: selected.lesson_date,
+        comment: selected.comment,
+      }"
+      :title="selected.subject_name"
+      @close="closeDetails"
+    />
   </div>
 </template>
 
@@ -68,7 +81,6 @@ const { lessonTime } = useSchedule()
 }
 .time { color: #64748b; font-size: 11px; }
 .subject { font-weight: 600; color: #0f172a; }
-.class { color: #64748b; font-size: 12px; }
 .teacher { font-size: 12px; color: #64748b; margin-top: 2px; }
 .row { display: flex; align-items: flex-start; gap: 6px; margin-top: 6px; font-size: 12px; }
 .label { color: #64748b; flex-shrink: 0; }

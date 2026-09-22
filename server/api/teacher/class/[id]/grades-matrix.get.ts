@@ -12,7 +12,6 @@ export interface MatrixRow {
 export interface MatrixColumn {
   date: string
   lesson_num: number
-  /** true — если в этот день у класса больше одного урока по этому предмету */
   multiLesson: boolean
 }
 interface MatrixResponse {
@@ -50,11 +49,7 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
   const from = term?.start_date ?? url.searchParams.get('from')
   const to   = term?.end_date   ?? url.searchParams.get('to')
 
-  // --- Слоты расписания: (day_of_week, lesson_num), где у класса
-  //     есть урок по выбранному предмету.
-  //
-  // Если предмет задан — берём его слоты.
-  // Если нет — берём все слоты учителя в этом классе.
+  // Слоты расписания
   const slotParams: any[] = [classId]
   let slotFilter = ''
   if (subjectId) {
@@ -73,15 +68,13 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
     slotParams
   )
 
-  // Готовим список колонок: для каждой даты в четверти, попадающей
-  // в один из дней недели из slots, и для каждого lesson_num из slots
-  // в этот день — отдельная колонка.
   const slotsByDow = new Map<number, number[]>()
   for (const s of slots) {
     if (!slotsByDow.has(s.day_of_week)) slotsByDow.set(s.day_of_week, [])
     slotsByDow.get(s.day_of_week)!.push(s.lesson_num)
   }
 
+  // Учебные дни четверти, исключая каникулы
   const columns: MatrixColumn[] = []
   if (from && to && slots.length) {
     const days = await query<{ d: string; dow: number }>(
@@ -89,6 +82,10 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
               EXTRACT(ISODOW FROM d)::int AS dow
        FROM generate_series($1::date, $2::date, INTERVAL '1 day') AS d
        WHERE EXTRACT(ISODOW FROM d) BETWEEN 1 AND 5
+         AND NOT EXISTS (
+           SELECT 1 FROM holidays h
+           WHERE h.start_date <= d::date AND h.end_date >= d::date
+         )
        ORDER BY d`,
       [from, to]
     )
@@ -102,7 +99,7 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
     }
   }
 
-  // --- Оценки ---
+  // Оценки
   const params: any[] = [classId]
   let dateFilter = ''
   if (from) { params.push(from); dateFilter += ` AND g.lesson_date >= $${params.length}::date` }
@@ -150,9 +147,7 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
     if (r.subject_id == null || r.lesson_date == null || r.value == null || r.id == null) continue
     const row = map.get(r.student_id)!
     const sid = String(r.subject_id)
-    const dt = String(r.lesson_date)
-    const ln = Number(r.lesson_num) || 1
-    const key = `${dt}#${ln}`
+    const key = `${r.lesson_date}#${Number(r.lesson_num) || 1}`
     row.grades_by_subject[sid] ??= {}
     row.grades_by_subject[sid][key] ??= []
     row.grades_by_subject[sid][key].push({
@@ -161,7 +156,7 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
       weight: Number(r.weight) || 1,
       grade_type_id: Number(r.grade_type_id),
       grade_type_name: String(r.grade_type_name),
-      lesson_num: ln,
+      lesson_num: Number(r.lesson_num) || 1,
     })
   }
 

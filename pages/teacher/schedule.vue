@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { formatDayMonth, isToday } from '~/composables/useWeek'
+import { isToday, holidayName } from '~/composables/useWeek'
 
 interface TeacherLesson {
   day_of_week: number
@@ -26,7 +26,13 @@ const api = useApi()
 const { user } = useAuth()
 const userId = computed(() => user.value?.id ?? null)
 
-const { weekStart, days, prev, next, goToday } = useWeek()
+const { weekStart, days } = useWeek()
+
+const { data: holidays } = await useAsyncData(
+  'holidays-teacher',
+  () => api.fetchHolidays(),
+  { default: () => [] }
+)
 
 const { data: lessons, pending } = await useAsyncData<TeacherLesson[]>(
   'teacher-week-schedule',
@@ -50,7 +56,6 @@ const byDate = computed(() => {
       const classes = Array.from(
         new Map(list.map(x => [x.class_id, { id: x.class_id, name: x.class_name }])).values()
       ).sort((a, b) => a.name.localeCompare(b.name))
-      // ДЗ собираем только тех классов, что в этом слоте
       const hw: { due_date: string; description: string }[] = []
       for (const x of list) for (const h of x.homework) hw.push(h)
       merged.push({
@@ -69,11 +74,8 @@ const byDate = computed(() => {
 })
 
 const { lessonTime } = useSchedule()
-
-function dayLabel(iso: string) {
-  const [, m, d] = iso.split('-')
-  return `${d}.${m}`
-}
+function dayLabel(iso: string) { const [, m, d] = iso.split('-'); return `${d}.${m}` }
+function holidayOf(date: string) { return holidayName(date, holidays.value ?? []) }
 </script>
 
 <template>
@@ -89,8 +91,9 @@ function dayLabel(iso: string) {
     <div v-else class="layout">
       <div class="days">
         <section v-for="(d, i) in days" :key="d" class="day">
-          <h2 :class="{ today: isToday(d) }">
+          <h2 :class="{ today: isToday(d), holiday: !!holidayOf(d) }">
             {{ appConfig.daysOfWeek[i] }} · {{ dayLabel(d) }}
+            <span v-if="holidayOf(d)" class="holiday-badge">{{ holidayOf(d) }}</span>
           </h2>
           <template v-if="byDate.get(d)?.length">
             <div
@@ -101,9 +104,7 @@ function dayLabel(iso: string) {
               <div class="head">
                 <span class="num">{{ l.lesson_num }}</span>
                 <span class="time">{{ lessonTime(l.lesson_num) }}</span>
-                <span class="class">
-                  {{ l.classes.map(c => c.name).join(', ') }} класс
-                </span>
+                <span class="class">{{ l.classes.map(c => c.name).join(', ') }} класс</span>
               </div>
               <div class="subject">
                 {{ l.subject_name }}
@@ -120,6 +121,7 @@ function dayLabel(iso: string) {
               </div>
             </div>
           </template>
+          <p v-else-if="holidayOf(d)" class="holiday-text">Каникулы</p>
           <p v-else class="muted small">Уроков нет</p>
         </section>
       </div>
@@ -138,16 +140,16 @@ function dayLabel(iso: string) {
   border-bottom: 2px solid #2563eb; padding-bottom: 4px;
 }
 .day h2.today { border-color: #16a34a; color: #166534; }
-.lesson {
-  border: 1px solid #e2e8f0; border-radius: 8px;
-  padding: 8px 10px; margin-bottom: 8px; background: #fff;
+.day h2.holiday { border-color: #f59e0b; color: #b45309; }
+.holiday-badge {
+  font-size: 11px; color: #b45309; background: #fef3c7;
+  border-radius: 4px; padding: 1px 6px; margin-left: 6px;
+  font-weight: 600;
 }
+.holiday-text { color: #b45309; font-weight: 600; font-size: 13px; }
+.lesson { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: #fff; }
 .head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.num {
-  display: inline-flex; justify-content: center; align-items: center;
-  width: 20px; height: 20px; border-radius: 4px;
-  background: #2563eb; color: #fff; font-size: 11px; font-weight: 700;
-}
+.num { display: inline-flex; justify-content: center; align-items: center; width: 20px; height: 20px; border-radius: 4px; background: #2563eb; color: #fff; font-size: 11px; font-weight: 700; }
 .time { color: #64748b; font-size: 11px; }
 .class { font-weight: 600; color: #0f172a; }
 .subject { font-size: 12px; color: #475569; margin-top: 2px; }

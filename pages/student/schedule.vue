@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { LessonWithExtras } from '~/server/api/students/[id]/week-schedule.get'
-import { formatDayMonth } from '~/composables/useWeek'
+import { holidayName } from '~/composables/useWeek'
 import { isToday } from '~/composables/useWeek'
 
 const appConfig = useAppConfig()
@@ -9,7 +9,13 @@ const api = useApi()
 const { user } = useAuth()
 const studentId = computed(() => user.value?.student_id ?? null)
 
-const { weekStart, days, prev, next, goToday } = useWeek()
+const { weekStart, days } = useWeek()
+
+const { data: holidays } = await useAsyncData(
+  'holidays-student',
+  () => api.fetchHolidays(),
+  { default: () => [] }
+)
 
 const { data: lessons, pending } = await useAsyncData<LessonWithExtras[]>(
   'student-week-schedule',
@@ -26,10 +32,12 @@ const byDate = computed(() => {
   return m
 })
 
-// Опционально: заменяем date на dd.mm для заголовка дня
 function dayLabel(iso: string) {
   const [, m, d] = iso.split('-')
   return `${d}.${m}`
+}
+function holidayOf(date: string) {
+  return holidayName(date, holidays.value ?? [])
 }
 </script>
 
@@ -42,14 +50,14 @@ function dayLabel(iso: string) {
     </div>
 
     <p v-if="!studentId" class="error">Ученик не определён.</p>
-
     <div v-else-if="pending && !lessons?.length" class="muted">Загрузка…</div>
 
     <div v-else class="layout">
       <div class="days">
         <section v-for="(d, i) in days" :key="d" class="day">
-          <h2 :class="{ today: isToday(d) }">
+          <h2 :class="{ today: isToday(d), holiday: !!holidayOf(d) }">
             {{ appConfig.daysOfWeek[i] }} · {{ dayLabel(d) }}
+            <span v-if="holidayOf(d)" class="holiday-badge">{{ holidayOf(d) }}</span>
           </h2>
           <template v-if="byDate.get(d)?.length">
             <LessonCard
@@ -58,6 +66,7 @@ function dayLabel(iso: string) {
               :lesson="l"
             />
           </template>
+          <p v-else-if="holidayOf(d)" class="holiday-text">Каникулы</p>
           <p v-else class="muted small">Уроков нет</p>
         </section>
       </div>
@@ -76,6 +85,13 @@ function dayLabel(iso: string) {
   border-bottom: 2px solid #2563eb; padding-bottom: 4px;
 }
 .day h2.today { border-color: #16a34a; color: #166534; }
+.day h2.holiday { border-color: #f59e0b; color: #b45309; }
+.holiday-badge {
+  font-size: 11px; color: #b45309; background: #fef3c7;
+  border-radius: 4px; padding: 1px 6px; margin-left: 6px;
+  font-weight: 600;
+}
+.holiday-text { color: #b45309; font-weight: 600; font-size: 13px; }
 .muted { color: #94a3b8; font-size: 13px; }
 .small { font-size: 12px; }
 .error { color: #dc2626; }

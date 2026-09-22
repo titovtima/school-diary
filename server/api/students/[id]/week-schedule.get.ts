@@ -1,5 +1,18 @@
 import { requireUser } from '~/server/utils/auth'
 
+export interface LessonGrade {
+  id: number
+  subject_id: number
+  subject_name: string
+  value: number
+  weight: number
+  grade_type_id: number
+  grade_type_name: string
+  lesson_date: string
+  lesson_num: number
+  comment: string | null
+}
+
 export interface LessonWithExtras {
   day_of_week: number
   lesson_num: number
@@ -7,7 +20,7 @@ export interface LessonWithExtras {
   subject_id: number
   subject_name: string
   teacher: string | null
-  grades: { value: number; weight: number; grade_type_name: string }[]
+  grades: LessonGrade[]
   homework: { due_date: string; description: string }[]
 }
 
@@ -34,7 +47,19 @@ export default defineEventHandler(async (event) => {
   const weekStart = mondayOfWeek(url.searchParams.get('week_start') || today)
   const weekEnd = addDays(weekStart, 4)
 
-  // 1. Расписание класса
+  // Каникулы этой недели
+  const holidayRows = await query<{ d: string }>(
+    `SELECT to_char(d,'YYYY-MM-DD') AS d
+     FROM generate_series($1::date, $2::date, INTERVAL '1 day') AS d
+     WHERE EXISTS (
+       SELECT 1 FROM holidays h
+       WHERE h.start_date <= d::date AND h.end_date >= d::date
+     )`,
+    [weekStart, weekEnd]
+  )
+  const holidays = new Set(holidayRows.map(r => r.d))
+
+  // Расписание класса
   const schedule = await query<{
     day_of_week: number; lesson_num: number
     subject_id: number; subject_name: string; teacher: string | null
@@ -49,15 +74,14 @@ export default defineEventHandler(async (event) => {
     [id]
   )
 
-  // 2. Оценки за эту неделю — с lesson_num
-  const grades = await query<{
-    subject_id: number; value: number; weight: number
-    grade_type_name: string; lesson_date: string; lesson_num: number
-  }>(
-    `SELECT g.subject_id, g.value, gt.weight, gt.name AS grade_type_name,
+  // Оценки за эту неделю — с полными полями
+  const grades = await query<any>(
+    `SELECT g.id, g.subject_id, sub.name AS subject_name,
+            g.value, gt.weight, g.grade_type_id, gt.name AS grade_type_name,
             to_char(g.lesson_date,'YYYY-MM-DD') AS lesson_date,
-            g.lesson_num
+            g.lesson_num, g.comment
      FROM grades g
+     JOIN subjects sub ON sub.id = g.subject_id
      JOIN grade_types gt ON gt.id = g.grade_type_id
      WHERE g.student_id = $1
        AND g.lesson_date BETWEEN $2::date AND $3::date
@@ -65,7 +89,7 @@ export default defineEventHandler(async (event) => {
     [id, weekStart, weekEnd]
   )
 
-  // 3. ДЗ класса на эту неделю (привязано к дате, не к уроку)
+  // ДЗ
   const homework = await query<{
     subject_id: number; due_date: string; description: string
   }>(
@@ -80,13 +104,24 @@ export default defineEventHandler(async (event) => {
     [id, weekStart, weekEnd]
   )
 
-  // Индексы
-  const gradesIndex = new Map<string, typeof grades>()
+  const gradesIndex = new Map<string, LessonGrade[]>()
   for (const g of grades) {
     const key = `${g.subject_id}|${g.lesson_date}|${g.lesson_num}`
     if (!gradesIndex.has(key)) gradesIndex.set(key, [])
-    gradesIndex.get(key)!.push(g)
+    gradesIndex.get(key)!.push({
+      id: Number(g.id),
+      subject_id: Number(g.subject_id),
+      subject_name: String(g.subject_name),
+      value: Number(g.value),
+      weight: Number(g.weight) || 1,
+      grade_type_id: Number(g.grade_type_id),
+      grade_type_name: String(g.grade_type_name),
+      lesson_date: String(g.lesson_date),
+      lesson_num: Number(g.lesson_num) || 1,
+      comment: g.comment ?? null,
+    })
   }
+
   const hwIndex = new Map<string, typeof homework>()
   for (const h of homework) {
     const key = `${h.subject_id}|${h.due_date}`
@@ -94,44 +129,40 @@ export default defineEventHandler(async (event) => {
     hwIndex.get(key)!.push(h)
   }
 
-  // Для ДЗ: только первый урок по предмету в этот день получает ДЗ
+  // Первый урок по предмету в день — только ему отдаём ДЗ
   const firstLessonBySubjectDate = new Map<string, number>()
   for (const s of schedule) {
     const date = addDays(weekStart, s.day_of_week - 1)
+    if (holidays.has(date)) continue
     const key = `${s.subject_id}|${date}`
     const cur = firstLessonBySubjectDate.get(key)
-    if (cur == null || s.lesson_num < cur) {
-      firstLessonBySubjectDate.set(key, s.lesson_num)
-    }
+    if (cur == null || s.lesson_num < cur) firstLessonBySubjectDate.set(key, s.lesson_num)
   }
 
-  const lessons: LessonWithExtras[] = schedule.map(s => {
+  const lessons: LessonWithExtras[] = []
+  for (const s of schedule) {
     const date = addDays(weekStart, s.day_of_week - 1)
+    if (holidays.has(date)) continue
     const gKey = `${s.subject_id}|${date}|${s.lesson_num}`
     const hwKey = `${s.subject_id}|${date}`
-    const isFirstLessonForSubject =
-      firstLessonBySubjectDate.get(hwKey) === s.lesson_num
+    const isFirst = firstLessonBySubjectDate.get(hwKey) === s.lesson_num
 
-    return {
+    lessons.push({
       day_of_week: s.day_of_week,
       lesson_num: s.lesson_num,
       date,
       subject_id: s.subject_id,
       subject_name: s.subject_name,
       teacher: s.teacher,
-      grades: (gradesIndex.get(gKey) ?? []).map(g => ({
-        value: Number(g.value),
-        weight: Number(g.weight) || 1,
-        grade_type_name: g.grade_type_name,
-      })),
-      homework: isFirstLessonForSubject
+      grades: gradesIndex.get(gKey) ?? [],
+      homework: isFirst
         ? (hwIndex.get(hwKey) ?? []).map(h => ({
             due_date: h.due_date,
             description: h.description,
           }))
         : [],
-    }
-  })
+    })
+  }
 
   return lessons
 })
