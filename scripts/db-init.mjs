@@ -1,13 +1,17 @@
 // ---------------------------------------------------------------------------
 // db-init:
-//   • Если в БД нет ХОТЯ БЫ ОДНОЙ из наших CORE_TABLES — применяем
-//     sql/schema.sql целиком (свежая или недоприменённая установка).
-//   • Иначе — прогоняем недостающие миграции из sql/migrations/, помечая
-//     применённые в таблице schema_migrations.
+//   • Свежая установка → применяется sql/schema.sql.
+//   • Существующая БД → применяются недостающие миграции из sql/migrations/.
+//   • Флаг --force-schema: всегда применяет schema.sql.
 //
-// Флаг --force-schema: всегда применяет sql/schema.sql (перезапишет).
+// Запуск:  node scripts/db-init.mjs [--force-schema]
+//
+// Подключение:
+//   DATABASE_URL=postgres://user:pass@host:port/db
+//   или PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE
 // ---------------------------------------------------------------------------
 
+import 'dotenv/config'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -21,8 +25,6 @@ const url = process.env.DATABASE_URL
 
 const forceSchema = process.argv.includes('--force-schema')
 
-// Полный набор таблиц, которые должны существовать после schema.sql.
-// Если хотя бы одной нет — считаем, что нужна свежая установка.
 const CORE_TABLES = [
   'classes', 'students', 'subjects', 'subject_classes',
   'grade_types', 'schedule', 'grades', 'homework',
@@ -42,9 +44,11 @@ await client.connect()
 try {
   console.log('→ Подключение к БД:', url.replace(/:[^:@]+@/, ':***@'))
 
+  const who = await client.query('SELECT current_user, current_database()')
+  console.log(`→ Пользователь: ${who.rows[0].current_user}, БД: ${who.rows[0].current_database}`)
+
   await client.query(CREATE_MIGRATIONS_TABLE)
 
-  // Каких CORE_TABLES не хватает?
   const { rows: presentRows } = await client.query(`
     SELECT table_name
       FROM information_schema.tables
@@ -54,7 +58,6 @@ try {
 
   const present = new Set(presentRows.map(r => r.table_name))
   const missing = CORE_TABLES.filter(t => !present.has(t))
-
   const needsSchema = forceSchema || missing.length > 0
 
   if (needsSchema) {
@@ -62,13 +65,33 @@ try {
       console.log('→ Не хватает таблиц:', missing.join(', '))
     }
     console.log('→ Применяю sql/schema.sql')
-    const sql = readFileSync(join(ROOT, 'sql', 'schema.sql'), 'utf8')
-    await client.query(sql)
 
-    // После schema.sql пересоздаём служебную таблицу
+    const sql = readFileSync(join(ROOT, 'sql', 'schema.sql'), 'utf8')
+
+    try {
+      await client.query(sql)
+    } catch (e) {
+      if (e.code === '42501') {
+        console.error('\n❌ Недостаточно прав для применения схемы.')
+        console.error('   Postgres вернул: ' + e.message)
+        console.error('')
+        console.error('   Варианты решения:')
+        console.error('')
+        console.error('   А) Запустить db-init от владельца таблиц:')
+        console.error('      PGUSER=postgres PGPASSWORD=... node scripts/db-init.mjs --force-schema')
+        console.error('')
+        console.error('   Б) Сменить владельца объектов на текущего пользователя:')
+        console.error(`      psql -U postgres -d ${who.rows[0].current_database} -v new_owner=${who.rows[0].current_user} -f scripts/make-me-owner.sql`)
+        console.error('')
+        console.error('   В) Выдать текущему пользователю SUPERUSER (только для dev):')
+        console.error(`      ALTER ROLE ${who.rows[0].current_user} SUPERUSER;`)
+        process.exit(2)
+      }
+      throw e
+    }
+
     await client.query(CREATE_MIGRATIONS_TABLE)
 
-    // Помечаем все существующие миграции как применённые
     const migrations = listMigrations()
     for (const m of migrations) {
       await client.query(
@@ -103,6 +126,12 @@ try {
           await client.query('COMMIT')
         } catch (e) {
           await client.query('ROLLBACK')
+          if (e.code === '42501') {
+            console.error(`\n❌ Миграция ${name} требует прав владельца.`)
+            console.error('   Причина: ' + e.message)
+            console.error('   Запусти: PGUSER=postgres node scripts/db-init.mjs')
+            process.exit(2)
+          }
           throw e
         }
       }

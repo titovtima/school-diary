@@ -8,9 +8,9 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "user:create": "node scripts/create-user.mjs",
-    "db:init": "node scripts/db-init.js",
-    "db:init:force": "node scripts/db-init.js --force-schema",
-    "db:seed": "psql $DATABASE_URL -f db/seed.sql"
+    "db:init": "node scripts/db-init.mjs",
+    "db:init:force": "node scripts/db-init.mjs --force-schema",
+    "db:seed": "node scripts/seed.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
