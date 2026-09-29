@@ -1,3 +1,7 @@
+/**
+ * Возвращает CSS-класс по весу — используется только как fallback,
+ * если у типа оценки нет своего цвета.
+ */
 export function gradeWeightClass(weight: number): string {
   const w = Number(weight)
   if (w <= 1.0)  return 'w1'
@@ -9,16 +13,24 @@ export function gradeWeightClass(weight: number): string {
 
 export function weightLabel(weight: number): string {
   const w = Number(weight)
-  if (w <= 1.0)  return 'обычная'
-  if (w <= 1.25) return 'повышенная'
-  if (w <= 1.5)  return 'повышенная'
-  if (w <= 1.75) return 'высокая'
+  if (w <= 1.0) return 'обычная'
+  if (w <= 1.5) return 'повышенная'
   return 'высокая'
 }
 
-/** '1' -> '1.0', '1.5' -> '1.5', '2' -> '2.0' */
 export function formatWeight(weight: number): string {
   const w = Number(weight)
   if (!Number.isFinite(w)) return ''
   return w.toFixed(1)
+}
+
+/** Возвращает либо инлайновый стиль с цветом, либо класс-fallback. */
+export function gradeStyle(color: string | null | undefined, weight: number): {
+  class?: string
+  style?: Record<string, string>
+} {
+  if (color && /^#[0-9a-fA-F]{6}$/.test(color)) {
+    return { style: { backgroundColor: color } }
+  }
+  return { class: gradeWeightClass(weight) }
 }

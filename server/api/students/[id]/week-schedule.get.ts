@@ -8,6 +8,7 @@ export interface LessonGrade {
   weight: number
   grade_type_id: number
   grade_type_name: string
+  grade_type_color: string
   lesson_date: string
   lesson_num: number
   comment: string | null
@@ -47,7 +48,6 @@ export default defineEventHandler(async (event) => {
   const weekStart = mondayOfWeek(url.searchParams.get('week_start') || today)
   const weekEnd = addDays(weekStart, 4)
 
-  // Каникулы этой недели
   const holidayRows = await query<{ d: string }>(
     `SELECT to_char(d,'YYYY-MM-DD') AS d
      FROM generate_series($1::date, $2::date, INTERVAL '1 day') AS d
@@ -59,7 +59,6 @@ export default defineEventHandler(async (event) => {
   )
   const holidays = new Set(holidayRows.map(r => r.d))
 
-  // Расписание класса
   const schedule = await query<{
     day_of_week: number; lesson_num: number
     subject_id: number; subject_name: string; teacher: string | null
@@ -74,10 +73,10 @@ export default defineEventHandler(async (event) => {
     [id]
   )
 
-  // Оценки за эту неделю — с полными полями
   const grades = await query<any>(
     `SELECT g.id, g.subject_id, sub.name AS subject_name,
             g.value, gt.weight, g.grade_type_id, gt.name AS grade_type_name,
+            gt.color AS grade_type_color,
             to_char(g.lesson_date,'YYYY-MM-DD') AS lesson_date,
             g.lesson_num, g.comment
      FROM grades g
@@ -89,7 +88,6 @@ export default defineEventHandler(async (event) => {
     [id, weekStart, weekEnd]
   )
 
-  // ДЗ
   const homework = await query<{
     subject_id: number; due_date: string; description: string
   }>(
@@ -116,6 +114,7 @@ export default defineEventHandler(async (event) => {
       weight: Number(g.weight) || 1,
       grade_type_id: Number(g.grade_type_id),
       grade_type_name: String(g.grade_type_name),
+      grade_type_color: String(g.grade_type_color || '#94a3b8'),
       lesson_date: String(g.lesson_date),
       lesson_num: Number(g.lesson_num) || 1,
       comment: g.comment ?? null,
@@ -129,7 +128,6 @@ export default defineEventHandler(async (event) => {
     hwIndex.get(key)!.push(h)
   }
 
-  // Первый урок по предмету в день — только ему отдаём ДЗ
   const firstLessonBySubjectDate = new Map<string, number>()
   for (const s of schedule) {
     const date = addDays(weekStart, s.day_of_week - 1)

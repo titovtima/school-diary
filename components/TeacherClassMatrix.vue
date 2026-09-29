@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import type { MatrixRow, Term, GradeType, MatrixCellGrade } from '~/types'
-import { gradeWeightClass } from '~/composables/useGradeColor'
+import { gradeStyle, formatWeight } from '~/composables/useGradeColor'
 import { formatDateShort } from '~/composables/useDate'
 import { weightedAverage, formatAvg } from '~/composables/useGradeCalc'
 
@@ -53,12 +53,8 @@ function studentAvg(studentId: number): number | null {
   return weightedAverage(all)
 }
 function columnAvg(col: Column): number | null {
-  if (!subjectId.value) return null
   const all: MatrixCellGrade[] = []
-  for (const r of props.rows) {
-    const arr = cellGrades(r.student_id, col)
-    all.push(...arr)
-  }
+  for (const r of props.rows) all.push(...cellGrades(r.student_id, col))
   return weightedAverage(all)
 }
 const classAvg = computed<number | null>(() => {
@@ -102,7 +98,12 @@ async function deleteFromDetails(id: number) {
   emit('changed')
 }
 
-// --- Sticky ---
+function badge(g: MatrixCellGrade) { return gradeStyle(g.grade_type_color, g.weight) }
+function colLabel(col: Column) {
+  return col.multiLesson ? `${formatDateShort(col.date)} (${col.lesson_num})` : formatDateShort(col.date)
+}
+
+// Sticky
 const firstColRef = ref<HTMLElement | null>(null)
 const col1Width = ref(0)
 let mounted = false
@@ -123,11 +124,6 @@ onBeforeUnmount(() => {
   if (typeof window !== 'undefined') window.removeEventListener('resize', measure)
 })
 watch([() => props.rows, () => props.subjects, subjectId], () => { if (mounted) nextTick(measure) })
-
-// Заголовок колонки: "17.10 (2)" если в этот день больше одного урока
-function colLabel(col: Column) {
-  return col.multiLesson ? `${formatDateShort(col.date)} (${col.lesson_num})` : formatDateShort(col.date)
-}
 </script>
 
 <template>
@@ -144,9 +140,7 @@ function colLabel(col: Column) {
       <span class="tip">Клик по ячейке — поставить оценку. Клик по оценке — детали.</span>
     </div>
 
-    <p v-if="!columns.length" class="muted">
-      В выбранной четверти по этому предмету нет уроков.
-    </p>
+    <p v-if="!columns.length" class="muted">В выбранной четверти по этому предмету нет уроков.</p>
 
     <div v-else class="matrix-wrap" :style="{ '--col1-width': col1Width + 'px' }">
       <table class="matrix">
@@ -174,7 +168,8 @@ function colLabel(col: Column) {
                 v-for="g in cellGrades(r.student_id, c)"
                 :key="g.id"
                 class="grade"
-                :class="gradeWeightClass(g.weight)"
+                :class="badge(g).class"
+                :style="badge(g).style"
                 :title="`${g.grade_type_name} · вес ${g.weight}`"
                 @click="openDetails(g, r.student_name, c.date, $event)"
               >{{ g.value }}</span>
@@ -204,7 +199,10 @@ function colLabel(col: Column) {
         </div>
         <p class="hint">Можно поставить несколько оценок за один урок — попап не закроется.</p>
         <div v-for="gt in gradeTypes" :key="gt.id" class="row">
-          <span class="type-name">{{ gt.name }} <small>(вес {{ gt.weight }})</small></span>
+          <span class="type-name">
+            <span class="dot" :style="{ backgroundColor: gt.color }"></span>
+            {{ gt.name }} <small>(вес {{ formatWeight(gt.weight) }})</small>
+          </span>
           <div class="values">
             <button v-for="v in [5, 4, 3, 2]" :key="v" @click="quickGrade(v, gt.id)">{{ v }}</button>
           </div>
@@ -216,7 +214,8 @@ function colLabel(col: Column) {
               v-for="g in cellGrades(activeCell!.studentId, { date: activeCell!.date, lesson_num: activeCell!.lesson_num, multiLesson: false })"
               :key="g.id"
               class="grade"
-              :class="gradeWeightClass(g.weight)"
+              :class="badge(g).class"
+              :style="badge(g).style"
               :title="`${g.grade_type_name} (вес ${g.weight})`"
               @click="openDetails(g, rows.find(r => r.student_id === activeCell!.studentId)?.student_name ?? '', activeCell!.date, $event)"
             >{{ g.value }}</span>
@@ -233,6 +232,7 @@ function colLabel(col: Column) {
         value: details.grade.value,
         weight: details.grade.weight,
         grade_type_name: details.grade.grade_type_name,
+        grade_type_color: details.grade.grade_type_color,
         subject_name: subjects.find(s => s.id === subjectId)?.name,
         lesson_date: details.date,
       }"
@@ -250,16 +250,9 @@ function colLabel(col: Column) {
 .class-avg b { color: #0f172a; }
 .tip { font-size: 12px; color: #94a3b8; }
 .muted { color: #94a3b8; font-size: 13px; }
-
 .matrix-wrap { overflow-x: auto; max-height: 70vh; overflow-y: auto; position: relative; }
 .matrix { border-collapse: separate; border-spacing: 0; font-size: 12px; }
-.matrix th, .matrix td {
-  border-right: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
-  padding: 4px 8px;
-  text-align: center;
-  background: #fff;
-}
+.matrix th, .matrix td { border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 4px 8px; text-align: center; background: #fff; }
 .matrix thead th { background: #f8fafc; position: sticky; top: 0; z-index: 3; }
 .col-student { text-align: left; white-space: nowrap; width: max-content; }
 .col-avg { white-space: nowrap; width: max-content; background: #f1f5f9; font-weight: 600; }
@@ -267,24 +260,22 @@ function colLabel(col: Column) {
 .cell { min-width: 44px; cursor: pointer; }
 .cell:hover { background: #f1f5f9; }
 .cell.active { background: #dbeafe; }
-
 .sticky-1 { position: sticky; left: 0; z-index: 2; background: #fff; box-shadow: 2px 0 0 #e2e8f0; }
 .matrix thead .sticky-1 { background: #f8fafc; z-index: 5; }
 .total-row .sticky-1 { background: #f8fafc; }
 .sticky-2 { position: sticky; left: var(--col1-width, 0); z-index: 2; background: #f1f5f9; box-shadow: 2px 0 0 #e2e8f0; }
 .matrix thead .sticky-2 { background: #f1f5f9; z-index: 5; }
 .total-row .sticky-2 { background: #f8fafc; }
-
 .empty { color: #94a3b8; padding: 20px; }
 .total-row td { background: #f8fafc; font-weight: 600; }
-
 .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .popover { background: #fff; padding: 16px 20px; border-radius: 10px; min-width: 380px; max-width: 520px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 40px rgba(0,0,0,.2); }
 .popover-head { font-size: 14px; color: #475569; margin-bottom: 10px; }
 .hint { font-size: 12px; color: #64748b; margin: 4px 0 10px; }
 .row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
-.type-name { font-size: 13px; }
+.type-name { font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
 .type-name small { color: #94a3b8; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
 .values button { width: 30px; height: 30px; margin-left: 4px; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; cursor: pointer; font-weight: 600; }
 .values button:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
 .current { margin-top: 12px; padding-top: 10px; border-top: 1px dashed #e2e8f0; }

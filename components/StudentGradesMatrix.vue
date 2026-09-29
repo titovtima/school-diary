@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import type { Grade, Term, GradeType } from '~/types'
-import { gradeWeightClass } from '~/composables/useGradeColor'
+import { gradeStyle } from '~/composables/useGradeColor'
 import { formatDateShort, schoolDaysBetween, normalizeDate } from '~/composables/useDate'
 import { weightedAverage, formatAvg } from '~/composables/useGradeCalc'
 
@@ -53,7 +53,11 @@ const totalAvg = computed(() => weightedAverage(props.grades))
 function openDetails(g: Grade, subjectName: string) { selected.value = { grade: g, subject: subjectName } }
 function closeDetails() { selected.value = null }
 
-// --- Sticky ---
+function badge(g: Grade) {
+  return gradeStyle(g.grade_type_color, g.weight)
+}
+
+// Sticky
 const firstColRef = ref<HTMLElement | null>(null)
 const col1Width = ref(0)
 let mounted = false
@@ -66,8 +70,7 @@ function measure() {
 }
 onMounted(async () => {
   mounted = true
-  await nextTick()
-  measure()
+  await nextTick(); measure()
   window.addEventListener('resize', measure)
 })
 onBeforeUnmount(() => {
@@ -97,7 +100,8 @@ watch([effectiveSubjects, dates], () => { if (mounted) nextTick(measure) })
                 v-for="g in cell(s.id, d)"
                 :key="g.id"
                 class="grade"
-                :class="gradeWeightClass(g.weight)"
+                :class="badge(g).class"
+                :style="badge(g).style"
                 :title="`${g.grade_type_name} · вес ${g.weight}`"
                 @click="openDetails(g, s.name)"
               >{{ g.value }}</span>
@@ -125,6 +129,7 @@ watch([effectiveSubjects, dates], () => { if (mounted) nextTick(measure) })
         value: selected.grade.value,
         weight: selected.grade.weight,
         grade_type_name: selected.grade.grade_type_name,
+        grade_type_color: selected.grade.grade_type_color,
         subject_name: selected.subject,
         lesson_date: selected.grade.lesson_date,
         comment: selected.grade.comment,
@@ -139,13 +144,7 @@ watch([effectiveSubjects, dates], () => { if (mounted) nextTick(measure) })
 .matrix-root { display: flex; flex-direction: column; }
 .matrix-wrap { overflow-x: auto; position: relative; }
 .matrix { border-collapse: separate; border-spacing: 0; font-size: 12px; }
-.matrix th, .matrix td {
-  border-right: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
-  padding: 4px 8px;
-  text-align: center;
-  background: #fff;
-}
+.matrix th, .matrix td { border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 4px 8px; text-align: center; background: #fff; }
 .matrix thead th { background: #f8fafc; font-weight: 600; }
 .col-subject { text-align: left; white-space: nowrap; width: max-content; }
 .col-avg { white-space: nowrap; width: max-content; background: #f1f5f9; font-weight: 600; }

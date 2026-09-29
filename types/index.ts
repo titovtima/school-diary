@@ -1,7 +1,13 @@
 export interface SchoolClass { id: number; name: string; year: number }
 export interface Student { id: number; class_id: number; full_name: string; birth_date: string | null }
 export interface Subject { id: number; name: string }
-export interface GradeType { id: number; name: string; weight: number }
+
+export interface GradeType {
+  id: number
+  name: string
+  weight: number
+  color: string
+}
 
 export interface ScheduleItem {
   id: number; class_id: number; subject_id: number; subject_name: string
@@ -15,6 +21,7 @@ export interface Grade {
   subject_name: string
   grade_type_id: number
   grade_type_name: string
+  grade_type_color: string
   weight: number
   value: number
   lesson_date: string
@@ -57,6 +64,7 @@ export interface Term {
 export interface MatrixCellGrade {
   id: number; value: number; weight: number
   grade_type_id: number; grade_type_name: string
+  grade_type_color: string
   lesson_num: number
 }
 

@@ -10,7 +10,9 @@
     "user:create": "node scripts/create-user.mjs",
     "db:init": "node scripts/db-init.mjs",
     "db:init:force": "node scripts/db-init.mjs --force-schema",
-    "db:seed": "node scripts/seed.mjs"
+    "db:seed": "node scripts/seed.mjs",
+    "db:student-passwords": "node scripts/reset-all-passwords.mjs",
+    "db:passwords": "node scripts/reset-all-passwords.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

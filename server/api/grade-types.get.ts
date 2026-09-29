@@ -4,6 +4,6 @@ import { requireUser } from '~/server/utils/auth'
 export default defineEventHandler(async (event): Promise<GradeType[]> => {
   await requireUser(event)
   return await query<GradeType>(
-    `SELECT id, name, weight FROM grade_types ORDER BY id`
+    `SELECT id, name, weight, color FROM grade_types ORDER BY id`
   )
 })

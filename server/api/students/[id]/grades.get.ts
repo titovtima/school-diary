@@ -25,7 +25,8 @@ export default defineEventHandler(async (event): Promise<StudentGradesResponse> 
 
   const rawGrades = await query<any>(
     `SELECT g.id, g.student_id, g.subject_id, sub.name AS subject_name,
-            g.grade_type_id, gt.name AS grade_type_name, gt.weight,
+            g.grade_type_id, gt.name AS grade_type_name,
+            gt.weight, gt.color AS grade_type_color,
             g.value, to_char(g.lesson_date, 'YYYY-MM-DD') AS lesson_date,
             g.lesson_num, g.comment
      FROM grades g
@@ -43,6 +44,7 @@ export default defineEventHandler(async (event): Promise<StudentGradesResponse> 
     subject_name: String(g.subject_name),
     grade_type_id: Number(g.grade_type_id),
     grade_type_name: String(g.grade_type_name),
+    grade_type_color: String(g.grade_type_color || '#94a3b8'),
     weight: Number(g.weight) || 1,
     value: Number(g.value),
     lesson_date: String(g.lesson_date),

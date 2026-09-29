@@ -3,6 +3,7 @@ import { requireTeacher } from '~/server/utils/auth'
 export interface MatrixCellGrade {
   id: number; value: number; weight: number
   grade_type_id: number; grade_type_name: string
+  grade_type_color: string
   lesson_num: number
 }
 export interface MatrixRow {
@@ -49,7 +50,6 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
   const from = term?.start_date ?? url.searchParams.get('from')
   const to   = term?.end_date   ?? url.searchParams.get('to')
 
-  // Слоты расписания
   const slotParams: any[] = [classId]
   let slotFilter = ''
   if (subjectId) {
@@ -74,7 +74,6 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
     slotsByDow.get(s.day_of_week)!.push(s.lesson_num)
   }
 
-  // Учебные дни четверти, исключая каникулы
   const columns: MatrixColumn[] = []
   if (from && to && slots.length) {
     const days = await query<{ d: string; dow: number }>(
@@ -99,7 +98,6 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
     }
   }
 
-  // Оценки
   const params: any[] = [classId]
   let dateFilter = ''
   if (from) { params.push(from); dateFilter += ` AND g.lesson_date >= $${params.length}::date` }
@@ -123,7 +121,8 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
             g.subject_id, g.value,
             to_char(g.lesson_date,'YYYY-MM-DD') AS lesson_date,
             g.lesson_num,
-            gt.weight, g.id, g.grade_type_id, gt.name AS grade_type_name
+            gt.weight, gt.color AS grade_type_color,
+            g.id, g.grade_type_id, gt.name AS grade_type_name
      FROM students st
      LEFT JOIN grades g
             ON g.student_id = st.id
@@ -156,6 +155,7 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
       weight: Number(r.weight) || 1,
       grade_type_id: Number(r.grade_type_id),
       grade_type_name: String(r.grade_type_name),
+      grade_type_color: String(r.grade_type_color || '#94a3b8'),
       lesson_num: Number(r.lesson_num) || 1,
     })
   }
