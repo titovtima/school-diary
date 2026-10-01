@@ -29,6 +29,16 @@ export interface Grade {
   comment: string | null
 }
 
+export interface Absence {
+  id: number
+  student_id: number
+  subject_id: number
+  subject_name?: string
+  lesson_date: string
+  lesson_num: number
+  comment: string | null
+}
+
 export interface Homework {
   id: number; class_id: number; subject_id: number; subject_name: string
   due_date: string; description: string
@@ -39,6 +49,14 @@ export interface NewGrade {
   subject_id: number
   grade_type_id: number
   value: number
+  lesson_date: string
+  lesson_num: number
+  comment?: string
+}
+
+export interface NewAbsence {
+  student_id: number
+  subject_id: number
   lesson_date: string
   lesson_num: number
   comment?: string
@@ -62,19 +80,30 @@ export interface Term {
 }
 
 export interface MatrixCellGrade {
-  id: number; value: number; weight: number
-  grade_type_id: number; grade_type_name: string
+  id: number
+  value: number
+  weight: number
+  grade_type_id: number
+  grade_type_name: string
   grade_type_color: string
   lesson_num: number
+}
+
+export interface MatrixCellAbsence {
+  id: number
+  lesson_num: number
+  comment: string | null
 }
 
 export interface MatrixRow {
   student_id: number
   student_name: string
   grades_by_subject: Record<string, Record<string, MatrixCellGrade[]>>
+  absences_by_subject: Record<string, Record<string, MatrixCellAbsence[]>>
 }
 
 export interface StudentGradesResponse {
   grades: Grade[]
+  absences: Absence[]
   subjects: { id: number; name: string }[]
 }

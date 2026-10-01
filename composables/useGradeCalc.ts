@@ -3,10 +3,6 @@ export interface WeightedGrade {
   weight: number
 }
 
-/**
- * Средневзвешенный балл. Возвращает null, если нет данных
- * или сумма весов = 0 (защита от NaN).
- */
 export function weightedAverage(grades: WeightedGrade[]): number | null {
   if (!grades.length) return null
   let s = 0
@@ -15,6 +11,7 @@ export function weightedAverage(grades: WeightedGrade[]): number | null {
     const v = Number(g.value)
     const wt = Number(g.weight)
     if (!Number.isFinite(v) || !Number.isFinite(wt)) continue
+    if (v < 1 || v > 5) continue
     s += v * wt
     w += wt
   }

@@ -1,20 +1,26 @@
 import { requireTeacher } from '~/server/utils/auth'
 
 export interface MatrixCellGrade {
-  id: number; value: number; weight: number
-  grade_type_id: number; grade_type_name: string
+  id: number
+  value: number
+  weight: number
+  grade_type_id: number
+  grade_type_name: string
   grade_type_color: string
   lesson_num: number
 }
-export interface MatrixRow {
-  student_id: number; student_name: string
-  grades_by_subject: Record<string, Record<string, MatrixCellGrade[]>>
-}
-export interface MatrixColumn {
-  date: string
+export interface MatrixCellAbsence {
+  id: number
   lesson_num: number
-  multiLesson: boolean
+  comment: string | null
 }
+export interface MatrixRow {
+  student_id: number
+  student_name: string
+  grades_by_subject: Record<string, Record<string, MatrixCellGrade[]>>
+  absences_by_subject: Record<string, Record<string, MatrixCellAbsence[]>>
+}
+export interface MatrixColumn { date: string; lesson_num: number; multiLesson: boolean }
 interface MatrixResponse {
   columns: MatrixColumn[]
   rows: MatrixRow[]
@@ -50,6 +56,7 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
   const from = term?.start_date ?? url.searchParams.get('from')
   const to   = term?.end_date   ?? url.searchParams.get('to')
 
+  // Слоты расписания
   const slotParams: any[] = [classId]
   let slotFilter = ''
   if (subjectId) {
@@ -92,12 +99,11 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
       const lessonsForDow = slotsByDow.get(day.dow)
       if (!lessonsForDow) continue
       const multi = lessonsForDow.length > 1
-      for (const ln of lessonsForDow) {
-        columns.push({ date: day.d, lesson_num: ln, multiLesson: multi })
-      }
+      for (const ln of lessonsForDow) columns.push({ date: day.d, lesson_num: ln, multiLesson: multi })
     }
   }
 
+  // Оценки
   const params: any[] = [classId]
   let dateFilter = ''
   if (from) { params.push(from); dateFilter += ` AND g.lesson_date >= $${params.length}::date` }
@@ -141,9 +147,10 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
         student_id: Number(r.student_id),
         student_name: String(r.student_name),
         grades_by_subject: {},
+        absences_by_subject: {},
       })
     }
-    if (r.subject_id == null || r.lesson_date == null || r.value == null || r.id == null) continue
+    if (r.subject_id == null || r.lesson_date == null || r.id == null) continue
     const row = map.get(r.student_id)!
     const sid = String(r.subject_id)
     const key = `${r.lesson_date}#${Number(r.lesson_num) || 1}`
@@ -157,6 +164,53 @@ export default defineEventHandler(async (event): Promise<MatrixResponse> => {
       grade_type_name: String(r.grade_type_name),
       grade_type_color: String(r.grade_type_color || '#94a3b8'),
       lesson_num: Number(r.lesson_num) || 1,
+    })
+  }
+
+  // Отсутствия
+  const aParams: any[] = [classId]
+  let aDateFilter = ''
+  if (from) { aParams.push(from); aDateFilter += ` AND a.lesson_date >= $${aParams.length}::date` }
+  if (to)   { aParams.push(to);   aDateFilter += ` AND a.lesson_date <= $${aParams.length}::date` }
+
+  let aRestrict = ''
+  if (subjectId) {
+    aParams.push(Number(subjectId))
+    aRestrict += ` AND a.subject_id = $${aParams.length}`
+  }
+  if (restrict) {
+    aParams.push(user.full_name)
+    aRestrict += ` AND a.subject_id IN (
+      SELECT DISTINCT s.subject_id FROM schedule s
+      WHERE s.class_id = st.class_id AND s.teacher = $${aParams.length}
+    )`
+  }
+
+  const absRows = await query<any>(
+    `SELECT st.id AS student_id,
+            a.subject_id,
+            to_char(a.lesson_date,'YYYY-MM-DD') AS lesson_date,
+            a.lesson_num, a.id, a.comment
+     FROM students st
+     JOIN absences a ON a.student_id = st.id
+        ${aDateFilter}
+        ${aRestrict}
+     WHERE st.class_id = $1
+     ORDER BY st.id, a.lesson_date, a.lesson_num, a.id`,
+    aParams
+  )
+
+  for (const r of absRows) {
+    const row = map.get(r.student_id)
+    if (!row) continue
+    const sid = String(r.subject_id)
+    const key = `${r.lesson_date}#${Number(r.lesson_num) || 1}`
+    row.absences_by_subject[sid] ??= {}
+    row.absences_by_subject[sid][key] ??= []
+    row.absences_by_subject[sid][key].push({
+      id: Number(r.id),
+      lesson_num: Number(r.lesson_num) || 1,
+      comment: r.comment ?? null,
     })
   }
 

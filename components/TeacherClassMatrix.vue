@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import type { MatrixRow, Term, GradeType, MatrixCellGrade } from '~/types'
+import type { MatrixRow, Term, GradeType, MatrixCellGrade, MatrixCellAbsence } from '~/types'
 import { gradeStyle, formatWeight } from '~/composables/useGradeColor'
 import { formatDateShort } from '~/composables/useDate'
 import { weightedAverage, formatAvg } from '~/composables/useGradeCalc'
@@ -23,7 +23,11 @@ const emit = defineEmits<{
 
 const api = useApi()
 const activeCell = ref<{ studentId: number; date: string; lesson_num: number } | null>(null)
-const details = ref<{ grade: MatrixCellGrade; student: string; date: string } | null>(null)
+const details = ref<
+  | { kind: 'grade'; grade: MatrixCellGrade; student: string; date: string }
+  | { kind: 'absence'; absence: MatrixCellAbsence; student: string; date: string }
+  | null
+>(null)
 
 const subjectId = computed({
   get: () => props.selectedSubjectId,
@@ -42,6 +46,13 @@ function cellGrades(studentId: number, col: Column): MatrixCellGrade[] {
   if (!row) return []
   const key = `${col.date}#${col.lesson_num}`
   return row.grades_by_subject[String(subjectId.value)]?.[key] ?? []
+}
+function cellAbsences(studentId: number, col: Column): MatrixCellAbsence[] {
+  if (!subjectId.value) return []
+  const row = props.rows.find(r => r.student_id === studentId)
+  if (!row) return []
+  const key = `${col.date}#${col.lesson_num}`
+  return row.absences_by_subject[String(subjectId.value)]?.[key] ?? []
 }
 function studentAvg(studentId: number): number | null {
   if (!subjectId.value) return null
@@ -86,19 +97,39 @@ async function quickGrade(value: number, gradeTypeId: number) {
   emit('changed')
 }
 
-function openDetails(g: MatrixCellGrade, studentName: string, date: string, e: MouseEvent) {
+async function quickAbsence() {
+  if (!activeCell.value || !subjectId.value) return
+  await api.createAbsence({
+    student_id: activeCell.value.studentId,
+    subject_id: subjectId.value,
+    lesson_date: activeCell.value.date,
+    lesson_num: activeCell.value.lesson_num,
+  })
+  emit('changed')
+}
+
+function openGradeDetails(g: MatrixCellGrade, studentName: string, date: string, e: MouseEvent) {
   e.stopPropagation()
-  details.value = { grade: g, student: studentName, date }
+  details.value = { kind: 'grade', grade: g, student: studentName, date }
+}
+function openAbsenceDetails(a: MatrixCellAbsence, studentName: string, date: string, e: MouseEvent) {
+  e.stopPropagation()
+  details.value = { kind: 'absence', absence: a, student: studentName, date }
 }
 function closeDetails() { details.value = null }
-async function deleteFromDetails(id: number) {
+async function deleteGrade(id: number) {
   if (!confirm('Удалить оценку?')) return
   await api.deleteGrade(id)
   details.value = null
   emit('changed')
 }
+async function deleteAbsence(id: number) {
+  if (!confirm('Удалить запись об отсутствии?')) return
+  await api.deleteAbsence(id)
+  details.value = null
+  emit('changed')
+}
 
-function badge(g: MatrixCellGrade) { return gradeStyle(g.grade_type_color, g.weight) }
 function colLabel(col: Column) {
   return col.multiLesson ? `${formatDateShort(col.date)} (${col.lesson_num})` : formatDateShort(col.date)
 }
@@ -137,7 +168,7 @@ watch([() => props.rows, () => props.subjects, subjectId], () => { if (mounted) 
       <span v-if="classAvg !== null" class="class-avg">
         Средний балл класса: <b>{{ formatAvg(classAvg) }}</b>
       </span>
-      <span class="tip">Клик по ячейке — поставить оценку. Клик по оценке — детали.</span>
+      <span class="tip">Клик по ячейке — поставить оценку или отметить отсутствие.</span>
     </div>
 
     <p v-if="!columns.length" class="muted">В выбранной четверти по этому предмету нет уроков.</p>
@@ -166,13 +197,20 @@ watch([() => props.rows, () => props.subjects, subjectId], () => { if (mounted) 
             >
               <span
                 v-for="g in cellGrades(r.student_id, c)"
-                :key="g.id"
+                :key="'g' + g.id"
                 class="grade"
-                :class="badge(g).class"
-                :style="badge(g).style"
+                :class="gradeStyle(g.grade_type_color, g.weight).class"
+                :style="gradeStyle(g.grade_type_color, g.weight).style"
                 :title="`${g.grade_type_name} · вес ${g.weight}`"
-                @click="openDetails(g, r.student_name, c.date, $event)"
+                @click="openGradeDetails(g, r.student_name, c.date, $event)"
               >{{ g.value }}</span>
+              <span
+                v-for="a in cellAbsences(r.student_id, c)"
+                :key="'a' + a.id"
+                class="grade absent"
+                title="Отсутствие на уроке"
+                @click="openAbsenceDetails(a, r.student_name, c.date, $event)"
+              >н</span>
             </td>
           </tr>
           <tr v-if="!rows.length">
@@ -197,7 +235,18 @@ watch([() => props.rows, () => props.subjects, subjectId], () => { if (mounted) 
           {{ activeCell.date }} · урок {{ activeCell.lesson_num }} —
           {{ rows.find(r => r.student_id === activeCell!.studentId)?.student_name }}
         </div>
-        <p class="hint">Можно поставить несколько оценок за один урок — попап не закроется.</p>
+        <p class="hint">Клик по 5/4/3/2 — оценка. «Н» — отсутствие. Можно ставить сколько нужно, попап не закроется.</p>
+
+        <div class="absence-row">
+          <span class="type-name">
+            <span class="dot" style="background:#dc2626"></span>
+            Отсутствие (Н)
+          </span>
+          <div class="values">
+            <button class="btn-absence" @click="quickAbsence">Н</button>
+          </div>
+        </div>
+
         <div v-for="gt in gradeTypes" :key="gt.id" class="row">
           <span class="type-name">
             <span class="dot" :style="{ backgroundColor: gt.color }"></span>
@@ -207,18 +256,30 @@ watch([() => props.rows, () => props.subjects, subjectId], () => { if (mounted) 
             <button v-for="v in [5, 4, 3, 2]" :key="v" @click="quickGrade(v, gt.id)">{{ v }}</button>
           </div>
         </div>
-        <div v-if="cellGrades(activeCell!.studentId, { date: activeCell!.date, lesson_num: activeCell!.lesson_num, multiLesson: false }).length" class="current">
-          <div class="current-head">Оценки за этот урок:</div>
+
+        <div
+          v-if="cellGrades(activeCell!.studentId, { date: activeCell!.date, lesson_num: activeCell!.lesson_num, multiLesson: false }).length ||
+                cellAbsences(activeCell!.studentId, { date: activeCell!.date, lesson_num: activeCell!.lesson_num, multiLesson: false }).length"
+          class="current"
+        >
+          <div class="current-head">Записи за этот урок:</div>
           <div class="current-list">
             <span
               v-for="g in cellGrades(activeCell!.studentId, { date: activeCell!.date, lesson_num: activeCell!.lesson_num, multiLesson: false })"
-              :key="g.id"
+              :key="'g' + g.id"
               class="grade"
-              :class="badge(g).class"
-              :style="badge(g).style"
+              :class="gradeStyle(g.grade_type_color, g.weight).class"
+              :style="gradeStyle(g.grade_type_color, g.weight).style"
               :title="`${g.grade_type_name} (вес ${g.weight})`"
-              @click="openDetails(g, rows.find(r => r.student_id === activeCell!.studentId)?.student_name ?? '', activeCell!.date, $event)"
+              @click="openGradeDetails(g, rows.find(r => r.student_id === activeCell!.studentId)?.student_name ?? '', activeCell!.date, $event)"
             >{{ g.value }}</span>
+            <span
+              v-for="a in cellAbsences(activeCell!.studentId, { date: activeCell!.date, lesson_num: activeCell!.lesson_num, multiLesson: false })"
+              :key="'a' + a.id"
+              class="grade absent"
+              title="Отсутствие"
+              @click="openAbsenceDetails(a, rows.find(r => r.student_id === activeCell!.studentId)?.student_name ?? '', activeCell!.date, $event)"
+            >н</span>
           </div>
         </div>
         <button class="close" @click="closePopover">Закрыть</button>
@@ -226,20 +287,37 @@ watch([() => props.rows, () => props.subjects, subjectId], () => { if (mounted) 
     </div>
 
     <GradeDetailsPopover
-      v-if="details"
-      :grade="{
+      v-if="details?.kind === 'grade'"
+      :detail="{
         id: details.grade.id,
+        kind: 'grade',
         value: details.grade.value,
         weight: details.grade.weight,
         grade_type_name: details.grade.grade_type_name,
         grade_type_color: details.grade.grade_type_color,
         subject_name: subjects.find(s => s.id === subjectId)?.name,
         lesson_date: details.date,
+        lesson_num: details.grade.lesson_num,
       }"
       :title="details.student"
       deletable
       @close="closeDetails"
-      @delete="deleteFromDetails"
+      @delete="deleteGrade"
+    />
+    <GradeDetailsPopover
+      v-else-if="details?.kind === 'absence'"
+      :detail="{
+        id: details.absence.id,
+        kind: 'absence',
+        subject_name: subjects.find(s => s.id === subjectId)?.name,
+        lesson_date: details.date,
+        lesson_num: details.absence.lesson_num,
+        comment: details.absence.comment,
+      }"
+      :title="details.student"
+      deletable
+      @close="closeDetails"
+      @delete="deleteAbsence"
     />
   </div>
 </template>
@@ -272,12 +350,15 @@ watch([() => props.rows, () => props.subjects, subjectId], () => { if (mounted) 
 .popover { background: #fff; padding: 16px 20px; border-radius: 10px; min-width: 380px; max-width: 520px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 40px rgba(0,0,0,.2); }
 .popover-head { font-size: 14px; color: #475569; margin-bottom: 10px; }
 .hint { font-size: 12px; color: #64748b; margin: 4px 0 10px; }
-.row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+.row, .absence-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+.absence-row { border-bottom-color: #fee2e2; }
 .type-name { font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
 .type-name small { color: #94a3b8; }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
 .values button { width: 30px; height: 30px; margin-left: 4px; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; cursor: pointer; font-weight: 600; }
 .values button:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
+.btn-absence { background: #dc2626 !important; color: #fff; border-color: #dc2626 !important; }
+.btn-absence:hover { background: #b91c1c !important; }
 .current { margin-top: 12px; padding-top: 10px; border-top: 1px dashed #e2e8f0; }
 .current-head { font-size: 12px; color: #64748b; margin-bottom: 6px; }
 .current-list { display: flex; gap: 6px; flex-wrap: wrap; }

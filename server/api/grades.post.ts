@@ -12,10 +12,8 @@ export default defineEventHandler(async (event) => {
   if (!body.lesson_num || body.lesson_num < 1 || body.lesson_num > 8)
     throw createError({ statusCode: 400, message: 'Номер урока от 1 до 8' })
 
-  // Проверка прав: учитель ставит только по своим предметам, кроме админа
-  const rows = await query<{ is_admin: boolean; class_id: number; allowed: boolean }>(
+  const rows = await query<{ is_admin: boolean; allowed: boolean }>(
     `SELECT u.is_admin,
-            st.class_id,
             EXISTS (
               SELECT 1 FROM schedule s
               WHERE s.class_id = st.class_id
@@ -36,8 +34,8 @@ export default defineEventHandler(async (event) => {
   const [row] = await query(
     `INSERT INTO grades (student_id, subject_id, grade_type_id, value, lesson_date, lesson_num, comment)
      VALUES ($1, $2, $3, $4, $5::date, $6, $7) RETURNING id`,
-    [body.student_id, body.subject_id, body.grade_type_id,
-     body.value, body.lesson_date, body.lesson_num, body.comment ?? null]
+    [body.student_id, body.subject_id, body.grade_type_id, body.value,
+     body.lesson_date, body.lesson_num, body.comment ?? null]
   )
   return { id: (row as any).id }
 })

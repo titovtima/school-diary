@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { Grade, GradeType, Homework, Term } from '~/types'
+import type { Absence, Grade, GradeType, Homework, Term } from '~/types'
 import { normalizeDate } from '~/composables/useDate'
 
 const api = useApi()
@@ -33,17 +33,21 @@ const activeTerm = computed<Term | null>(() => {
   return terms.value.find(t => t.id === selectedTermId.value) ?? null
 })
 
-const { data: gradesPayload, pending: gradesPending, refresh: refreshGrades } = await useAsyncData(
+const { data: payload, pending, refresh: refreshGrades } = await useAsyncData(
   'student-grades-data',
   async () => {
-    if (!studentId.value) return { grades: [] as Grade[], subjects: [] as { id: number; name: string }[] }
+    if (!studentId.value) return { grades: [] as Grade[], absences: [] as Absence[], subjects: [] as { id: number; name: string }[] }
     return await api.fetchStudentGrades(studentId.value)
   },
-  { watch: [studentId], default: () => ({ grades: [] as Grade[], subjects: [] as { id: number; name: string }[] }) }
+  {
+    watch: [studentId],
+    default: () => ({ grades: [] as Grade[], absences: [] as Absence[], subjects: [] as { id: number; name: string }[] }),
+  }
 )
 
-const grades   = computed<Grade[]>(() => gradesPayload.value?.grades ?? [])
-const subjects = computed<{ id: number; name: string }[]>(() => gradesPayload.value?.subjects ?? [])
+const grades = computed<Grade[]>(() => payload.value?.grades ?? [])
+const absences = computed<Absence[]>(() => payload.value?.absences ?? [])
+const subjects = computed<{ id: number; name: string }[]>(() => payload.value?.subjects ?? [])
 
 const { data: homework } = await useAsyncData<Homework[]>(
   'student-homework',
@@ -55,14 +59,22 @@ const gradesInTerm = computed<Grade[]>(() => {
   const all = grades.value
   if (!activeTerm.value) return all
   const start = normalizeDate(activeTerm.value.start_date)
-  const end   = normalizeDate(activeTerm.value.end_date)
+  const end = normalizeDate(activeTerm.value.end_date)
   return all.filter(g => {
     const d = normalizeDate(g.lesson_date)
     return d >= start && d <= end
   })
 })
-const hasAnyGradesOverall = computed(() => grades.value.length > 0)
-const hasGradesInTerm = computed(() => gradesInTerm.value.length > 0)
+const absencesInTerm = computed<Absence[]>(() => {
+  const all = absences.value
+  if (!activeTerm.value) return all
+  const start = normalizeDate(activeTerm.value.start_date)
+  const end = normalizeDate(activeTerm.value.end_date)
+  return all.filter(a => {
+    const d = normalizeDate(a.lesson_date)
+    return d >= start && d <= end
+  })
+})
 
 async function reload() { await refreshGrades() }
 </script>
@@ -82,11 +94,15 @@ async function reload() { await refreshGrades() }
         <button :class="{ active: tab === 'grades' }" @click="tab = 'grades'">Оценки</button>
         <button :class="{ active: tab === 'homework' }" @click="tab = 'homework'">Домашние задания</button>
       </div>
-      <p v-if="gradesPending && !grades.length" class="loading">Загрузка…</p>
-      <template v-else-if="tab === 'grades'">
-        <p v-if="hasAnyGradesOverall && !hasGradesInTerm" class="empty-term">В выбранной четверти оценок нет.</p>
-        <StudentGradesMatrix :grades="gradesInTerm" :term="activeTerm" :subjects="subjects" :grade-types="gradeTypes || []" />
-      </template>
+      <p v-if="pending && !grades.length" class="loading">Загрузка…</p>
+      <StudentGradesMatrix
+        v-else-if="tab === 'grades'"
+        :grades="gradesInTerm"
+        :absences="absencesInTerm"
+        :term="activeTerm"
+        :subjects="subjects"
+        :grade-types="gradeTypes || []"
+      />
       <HomeworkList v-else :homework="homework || []" />
     </template>
   </div>
@@ -101,5 +117,4 @@ async function reload() { await refreshGrades() }
 .tabs button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
 .loading { color: #64748b; }
 .error { color: #dc2626; background: #fee2e2; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
-.empty-term { color: #b45309; background: #fef3c7; padding: 8px 12px; border-radius: 6px; font-size: 13px; margin: 8px 0; }
 </style>

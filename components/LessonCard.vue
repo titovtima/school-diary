@@ -1,16 +1,23 @@
 <script setup lang="ts">
-import type { LessonWithExtras, LessonGrade } from '~/server/api/students/[id]/week-schedule.get'
+import type {
+  LessonWithExtras, LessonGrade, LessonAbsence,
+} from '~/server/api/students/[id]/week-schedule.get'
 import { gradeStyle } from '~/composables/useGradeColor'
 import { formatDate } from '~/composables/useDate'
 
 const props = defineProps<{ lesson: LessonWithExtras }>()
 
 const { lessonTime } = useSchedule()
-const selected = ref<LessonGrade | null>(null)
 
-function openDetails(g: LessonGrade) { selected.value = g }
+const selected = ref<
+  | { kind: 'grade'; grade: LessonGrade }
+  | { kind: 'absence'; absence: LessonAbsence }
+  | null
+>(null)
+
+function openGrade(g: LessonGrade) { selected.value = { kind: 'grade', grade: g } }
+function openAbsence(a: LessonAbsence) { selected.value = { kind: 'absence', absence: a } }
 function closeDetails() { selected.value = null }
-function badge(g: LessonGrade) { return gradeStyle(g.grade_type_color, g.weight) }
 </script>
 
 <template>
@@ -23,17 +30,24 @@ function badge(g: LessonGrade) { return gradeStyle(g.grade_type_color, g.weight)
 
     <div v-if="props.lesson.teacher" class="teacher">{{ props.lesson.teacher }}</div>
 
-    <div v-if="props.lesson.grades.length" class="row">
+    <div v-if="props.lesson.grades.length || props.lesson.absences.length" class="row">
       <span class="label">Оценки:</span>
       <span
         v-for="g in props.lesson.grades"
-        :key="g.id"
+        :key="'g' + g.id"
         class="grade"
-        :class="badge(g).class"
-        :style="badge(g).style"
+        :class="gradeStyle(g.grade_type_color, g.weight).class"
+        :style="gradeStyle(g.grade_type_color, g.weight).style"
         :title="`${g.grade_type_name} · вес ${g.weight}`"
-        @click="openDetails(g)"
+        @click="openGrade(g)"
       >{{ g.value }}</span>
+      <span
+        v-for="a in props.lesson.absences"
+        :key="'a' + a.id"
+        class="grade absent"
+        title="Отсутствие на уроке"
+        @click="openAbsence(a)"
+      >н</span>
     </div>
 
     <div v-if="props.lesson.homework.length" class="row hw">
@@ -47,18 +61,33 @@ function badge(g: LessonGrade) { return gradeStyle(g.grade_type_color, g.weight)
     </div>
 
     <GradeDetailsPopover
-      v-if="selected"
-      :grade="{
-        id: selected.id,
-        value: selected.value,
-        weight: selected.weight,
-        grade_type_name: selected.grade_type_name,
-        grade_type_color: selected.grade_type_color,
-        subject_name: selected.subject_name,
-        lesson_date: selected.lesson_date,
-        comment: selected.comment,
+      v-if="selected?.kind === 'grade'"
+      :detail="{
+        id: selected.grade.id,
+        kind: 'grade',
+        value: selected.grade.value,
+        weight: selected.grade.weight,
+        grade_type_name: selected.grade.grade_type_name,
+        grade_type_color: selected.grade.grade_type_color,
+        subject_name: selected.grade.subject_name,
+        lesson_date: selected.grade.lesson_date,
+        lesson_num: selected.grade.lesson_num,
+        comment: selected.grade.comment,
       }"
-      :title="selected.subject_name"
+      :title="selected.grade.subject_name"
+      @close="closeDetails"
+    />
+    <GradeDetailsPopover
+      v-else-if="selected?.kind === 'absence'"
+      :detail="{
+        id: selected.absence.id,
+        kind: 'absence',
+        subject_name: props.lesson.subject_name,
+        lesson_date: props.lesson.date,
+        lesson_num: selected.absence.lesson_num,
+        comment: selected.absence.comment,
+      }"
+      :title="props.lesson.subject_name"
       @close="closeDetails"
     />
   </div>

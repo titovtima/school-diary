@@ -1,7 +1,7 @@
 import type {
   SchoolClass, Student, ScheduleItem, Grade, Homework,
   GradeType, Subject, NewGrade, NewHomework, MatrixRow, Term,
-  StudentGradesResponse,
+  StudentGradesResponse, NewAbsence,
 } from '~/types'
 
 async function safeFetch<T>(url: string, opts: any = {}): Promise<T> {
@@ -34,6 +34,10 @@ export const useApi = () => {
     deleteGrade:    (id: number) => fetch(`/api/grades/${id}`, { method: 'DELETE' }),
     updateGrade:    (id: number, payload: { value?: number; grade_type_id?: number; comment?: string }) =>
       fetch(`/api/grades/${id}`, { method: 'PATCH', body: payload }),
+
+    createAbsence:  (payload: NewAbsence) => fetch('/api/absences', { method: 'POST', body: payload }),
+    deleteAbsence:  (id: number) => fetch(`/api/absences/${id}`, { method: 'DELETE' }),
+
     createHomework: (payload: NewHomework) => fetch('/api/homework', { method: 'POST', body: payload }),
     updateHomework: (id: number, payload: { subject_id?: number; due_date?: string; description?: string }) =>
       fetch(`/api/homework/${id}`, { method: 'PATCH', body: payload }),
@@ -87,7 +91,6 @@ export const useApi = () => {
         date: string
         class_id: number; class_name: string
         subject_id: number; subject_name: string
-        grades: { value: number; weight: number; grade_type_name: string }[]
         homework: { due_date: string; description: string }[]
       }[]>(`/api/teacher/my-week-schedule?week_start=${weekStartISO}`),
   }

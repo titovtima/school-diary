@@ -13,7 +13,11 @@ export interface LessonGrade {
   lesson_num: number
   comment: string | null
 }
-
+export interface LessonAbsence {
+  id: number
+  lesson_num: number
+  comment: string | null
+}
 export interface LessonWithExtras {
   day_of_week: number
   lesson_num: number
@@ -22,6 +26,7 @@ export interface LessonWithExtras {
   subject_name: string
   teacher: string | null
   grades: LessonGrade[]
+  absences: LessonAbsence[]
   homework: { due_date: string; description: string }[]
 }
 
@@ -88,6 +93,17 @@ export default defineEventHandler(async (event) => {
     [id, weekStart, weekEnd]
   )
 
+  const absences = await query<any>(
+    `SELECT a.id, a.subject_id,
+            to_char(a.lesson_date,'YYYY-MM-DD') AS lesson_date,
+            a.lesson_num, a.comment
+     FROM absences a
+     WHERE a.student_id = $1
+       AND a.lesson_date BETWEEN $2::date AND $3::date
+     ORDER BY a.lesson_date, a.lesson_num, a.id`,
+    [id, weekStart, weekEnd]
+  )
+
   const homework = await query<{
     subject_id: number; due_date: string; description: string
   }>(
@@ -118,6 +134,17 @@ export default defineEventHandler(async (event) => {
       lesson_date: String(g.lesson_date),
       lesson_num: Number(g.lesson_num) || 1,
       comment: g.comment ?? null,
+    })
+  }
+
+  const absencesIndex = new Map<string, LessonAbsence[]>()
+  for (const a of absences) {
+    const key = `${a.subject_id}|${a.lesson_date}|${a.lesson_num}`
+    if (!absencesIndex.has(key)) absencesIndex.set(key, [])
+    absencesIndex.get(key)!.push({
+      id: Number(a.id),
+      lesson_num: Number(a.lesson_num) || 1,
+      comment: a.comment ?? null,
     })
   }
 
@@ -153,6 +180,7 @@ export default defineEventHandler(async (event) => {
       subject_name: s.subject_name,
       teacher: s.teacher,
       grades: gradesIndex.get(gKey) ?? [],
+      absences: absencesIndex.get(gKey) ?? [],
       homework: isFirst
         ? (hwIndex.get(hwKey) ?? []).map(h => ({
             due_date: h.due_date,

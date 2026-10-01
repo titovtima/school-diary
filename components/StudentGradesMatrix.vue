@@ -1,23 +1,29 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import type { Grade, Term, GradeType } from '~/types'
+import type { Grade, Absence, Term, GradeType } from '~/types'
 import { gradeStyle } from '~/composables/useGradeColor'
 import { formatDateShort, schoolDaysBetween, normalizeDate } from '~/composables/useDate'
 import { weightedAverage, formatAvg } from '~/composables/useGradeCalc'
 
 const props = defineProps<{
   grades: Grade[]
+  absences: Absence[]
   term: Term | null
   subjects: { id: number; name: string }[]
   gradeTypes: GradeType[]
 }>()
 
-const selected = ref<{ grade: Grade; subject: string } | null>(null)
+type SelectedItem =
+  | { kind: 'grade'; grade: Grade; subject: string }
+  | { kind: 'absence'; absence: Absence; subject: string }
+
+const selected = ref<SelectedItem | null>(null)
 
 const effectiveSubjects = computed(() => {
   if (props.subjects?.length) return props.subjects
   const map = new Map<number, string>()
   for (const g of props.grades) map.set(g.subject_id, g.subject_name)
+  for (const a of props.absences) if (a.subject_name) map.set(a.subject_id, a.subject_name)
   return Array.from(map, ([id, name]) => ({ id, name }))
     .sort((a, b) => a.name.localeCompare(b.name))
 })
@@ -27,12 +33,13 @@ const dates = computed<string[]>(() => {
     const list = schoolDaysBetween(props.term.start_date, props.term.end_date)
     if (list.length) return list
   }
-  return Array.from(new Set(props.grades.map(g => normalizeDate(g.lesson_date))))
-    .filter(Boolean)
-    .sort()
+  const set = new Set<string>()
+  for (const g of props.grades) set.add(normalizeDate(g.lesson_date))
+  for (const a of props.absences) set.add(normalizeDate(a.lesson_date))
+  return Array.from(set).filter(Boolean).sort()
 })
 
-const index = computed(() => {
+const gradesIndex = computed(() => {
   const m = new Map<string, Grade[]>()
   for (const g of props.grades) {
     const key = `${g.subject_id}|${normalizeDate(g.lesson_date)}`
@@ -41,21 +48,31 @@ const index = computed(() => {
   }
   return m
 })
+const absencesIndex = computed(() => {
+  const m = new Map<string, Absence[]>()
+  for (const a of props.absences) {
+    const key = `${a.subject_id}|${normalizeDate(a.lesson_date)}`
+    if (!m.has(key)) m.set(key, [])
+    m.get(key)!.push(a)
+  }
+  return m
+})
 
-function cell(subjectId: number, date: string): Grade[] {
-  return index.value.get(`${subjectId}|${normalizeDate(date)}`) || []
+function cellGrades(subjectId: number, date: string): Grade[] {
+  return gradesIndex.value.get(`${subjectId}|${normalizeDate(date)}`) || []
 }
+function cellAbsences(subjectId: number, date: string): Absence[] {
+  return absencesIndex.value.get(`${subjectId}|${normalizeDate(date)}`) || []
+}
+
 function subjectAvg(subjectId: number): number | null {
   return weightedAverage(props.grades.filter(g => g.subject_id === subjectId))
 }
 const totalAvg = computed(() => weightedAverage(props.grades))
 
-function openDetails(g: Grade, subjectName: string) { selected.value = { grade: g, subject: subjectName } }
+function openGrade(g: Grade, subject: string) { selected.value = { kind: 'grade', grade: g, subject } }
+function openAbsence(a: Absence, subject: string) { selected.value = { kind: 'absence', absence: a, subject } }
 function closeDetails() { selected.value = null }
-
-function badge(g: Grade) {
-  return gradeStyle(g.grade_type_color, g.weight)
-}
 
 // Sticky
 const firstColRef = ref<HTMLElement | null>(null)
@@ -97,14 +114,21 @@ watch([effectiveSubjects, dates], () => { if (mounted) nextTick(measure) })
             <td class="col-avg sticky-2">{{ formatAvg(subjectAvg(s.id)) }}</td>
             <td v-for="d in dates" :key="d" class="col-cell">
               <span
-                v-for="g in cell(s.id, d)"
-                :key="g.id"
+                v-for="g in cellGrades(s.id, d)"
+                :key="'g' + g.id"
                 class="grade"
-                :class="badge(g).class"
-                :style="badge(g).style"
+                :class="gradeStyle(g.grade_type_color, g.weight).class"
+                :style="gradeStyle(g.grade_type_color, g.weight).style"
                 :title="`${g.grade_type_name} · вес ${g.weight}`"
-                @click="openDetails(g, s.name)"
+                @click="openGrade(g, s.name)"
               >{{ g.value }}</span>
+              <span
+                v-for="a in cellAbsences(s.id, d)"
+                :key="'a' + a.id"
+                class="grade absent"
+                title="Отсутствие на уроке"
+                @click="openAbsence(a, s.name)"
+              >н</span>
             </td>
           </tr>
           <tr v-if="!effectiveSubjects.length">
@@ -120,19 +144,34 @@ watch([effectiveSubjects, dates], () => { if (mounted) nextTick(measure) })
     </div>
 
     <GradeLegend v-if="gradeTypes.length" :types="gradeTypes" />
-    <p class="hint">Клик по оценке — подробности: тип работы, коэффициент, комментарий.</p>
+    <p class="hint">Клик по оценке — подробности. «н» — отсутствие.</p>
 
     <GradeDetailsPopover
-      v-if="selected"
-      :grade="{
+      v-if="selected?.kind === 'grade'"
+      :detail="{
         id: selected.grade.id,
+        kind: 'grade',
         value: selected.grade.value,
         weight: selected.grade.weight,
         grade_type_name: selected.grade.grade_type_name,
         grade_type_color: selected.grade.grade_type_color,
         subject_name: selected.subject,
         lesson_date: selected.grade.lesson_date,
+        lesson_num: selected.grade.lesson_num,
         comment: selected.grade.comment,
+      }"
+      :title="selected.subject"
+      @close="closeDetails"
+    />
+    <GradeDetailsPopover
+      v-else-if="selected?.kind === 'absence'"
+      :detail="{
+        id: selected.absence.id,
+        kind: 'absence',
+        subject_name: selected.subject,
+        lesson_date: selected.absence.lesson_date,
+        lesson_num: selected.absence.lesson_num,
+        comment: selected.absence.comment,
       }"
       :title="selected.subject"
       @close="closeDetails"

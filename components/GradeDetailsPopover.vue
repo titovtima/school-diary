@@ -4,67 +4,90 @@ import { formatDate } from '~/composables/useDate'
 
 export interface GradeDetail {
   id: number
-  value: number
-  weight: number
-  grade_type_name: string
-  grade_type_color?: string
+  kind: 'grade' | 'absence'
+  value?: number | null
+  weight?: number | null
+  grade_type_name?: string | null
+  grade_type_color?: string | null
   lesson_date?: string
+  lesson_num?: number
   subject_name?: string
   comment?: string | null
 }
 
 const props = defineProps<{
-  grade: GradeDetail
+  detail: GradeDetail
   title?: string
   deletable?: boolean
 }>()
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'delete', id: number): void }>()
 
-const badge = computed(() => gradeStyle(props.grade.grade_type_color, props.grade.weight))
+const isAbsence = computed(() => props.detail.kind === 'absence')
+
+const badge = computed(() => {
+  if (isAbsence.value) return { class: 'absent' as const }
+  return gradeStyle(props.detail.grade_type_color, props.detail.weight ?? 1)
+})
+
+const headerTitle = computed(() =>
+  isAbsence.value ? 'Отсутствие на уроке' : (props.detail.grade_type_name || 'Оценка')
+)
 </script>
 
 <template>
   <div class="gdp-overlay" @click.self="emit('close')">
     <div class="gdp-card">
       <header class="gdp-head">
-        <span class="grade" :class="badge.class" :style="badge.style">
-          {{ props.grade.value }}
+        <span class="grade" :class="[badge.class, isAbsence && 'absent']" :style="badge.style">
+          {{ isAbsence ? 'н' : props.detail.value }}
         </span>
         <div class="gdp-title">
-          <div class="gdp-type">{{ props.grade.grade_type_name }}</div>
-          <div class="gdp-sub">{{ props.title || props.grade.subject_name }}</div>
+          <div class="gdp-type">{{ headerTitle }}</div>
+          <div class="gdp-sub">{{ props.title || props.detail.subject_name }}</div>
         </div>
       </header>
 
       <ul class="gdp-list">
-        <li>
-          <span class="k">Тип работы</span>
-          <span class="v">{{ props.grade.grade_type_name }}</span>
-        </li>
-        <li>
-          <span class="k">Коэффициент (вес)</span>
-          <span class="v">
-            <b>{{ Number(props.grade.weight).toFixed(1) }}</b>
-            <span class="muted"> — {{ weightLabel(props.grade.weight) }}</span>
-          </span>
-        </li>
-        <li v-if="props.grade.subject_name">
+        <template v-if="isAbsence">
+          <li>
+            <span class="k">Статус</span>
+            <span class="v"><b>Отсутствовал(а)</b></span>
+          </li>
+        </template>
+        <template v-else>
+          <li>
+            <span class="k">Тип работы</span>
+            <span class="v">{{ props.detail.grade_type_name }}</span>
+          </li>
+          <li>
+            <span class="k">Коэффициент (вес)</span>
+            <span class="v">
+              <b>{{ Number(props.detail.weight).toFixed(1) }}</b>
+              <span class="muted"> — {{ weightLabel(props.detail.weight ?? 0) }}</span>
+            </span>
+          </li>
+        </template>
+        <li v-if="props.detail.subject_name">
           <span class="k">Предмет</span>
-          <span class="v">{{ props.grade.subject_name }}</span>
+          <span class="v">{{ props.detail.subject_name }}</span>
         </li>
-        <li v-if="props.grade.lesson_date">
+        <li v-if="props.detail.lesson_date">
           <span class="k">Дата урока</span>
-          <span class="v">{{ formatDate(props.grade.lesson_date) }}</span>
+          <span class="v">{{ formatDate(props.detail.lesson_date) }}</span>
         </li>
-        <li v-if="props.grade.comment">
+        <li v-if="props.detail.lesson_num">
+          <span class="k">Урок</span>
+          <span class="v">№{{ props.detail.lesson_num }}</span>
+        </li>
+        <li v-if="props.detail.comment">
           <span class="k">Комментарий</span>
-          <span class="v">{{ props.grade.comment }}</span>
+          <span class="v">{{ props.detail.comment }}</span>
         </li>
       </ul>
 
       <div class="gdp-actions">
-        <button v-if="props.deletable" class="gdp-del" @click="emit('delete', props.grade.id)">Удалить</button>
+        <button v-if="props.deletable" class="gdp-del" @click="emit('delete', props.detail.id)">Удалить</button>
         <button class="gdp-close" @click="emit('close')">Закрыть</button>
       </div>
     </div>
